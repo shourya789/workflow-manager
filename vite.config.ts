@@ -6,7 +6,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
 
   return {
-    base: '/workflow-manager/', // 🔴 THIS WAS MISSING
+    base: '/workflow-manager/', 
     plugins: [react()],
     server: {
       port: 3000,
