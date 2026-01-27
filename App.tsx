@@ -40,7 +40,7 @@ import {
   LayoutGridIcon,
   FileSpreadsheetIcon,
   AlertCircleIcon,
-  FilterIcon
+  InfoIcon
 } from 'lucide-react';
 import { TimeData, User, ShiftType, EntryStatus } from './types';
 import { timeToSeconds, secondsToTime, autoCorrectTime } from './utils';
@@ -487,7 +487,7 @@ export default function App() {
                         <div className={`text-2xl font-black font-mono tracking-tighter dark:text-white ${loginExceeded ? 'text-rose-600' : ''}`}>{formData.currentLogin}</div>
                       </div>
                       <div className="text-right space-y-1">
-                        <span className="text-[8px] font-black text-slate-400 uppercase leading-none">Remaining</span>
+                        <span className="text-[8px] font-black text-slate-400 uppercase leading-none">Total Login Remaining</span>
                         <div className={`text-sm font-black font-mono tracking-tighter ${loginExceeded ? 'text-rose-600' : 'text-emerald-500'}`}>{secondsToTime(loginRemainingSec)}</div>
                       </div>
                     </div>
@@ -507,11 +507,11 @@ export default function App() {
                   <div className="space-y-4">
                     <div className="flex justify-between items-end">
                       <div className="space-y-1">
-                        <span className="text-[8px] font-black text-slate-400 uppercase leading-none">Break Balance Used</span>
+                        <span className="text-[8px] font-black text-slate-400 uppercase leading-none">Cumulative Break Used</span>
                         <div className={`text-2xl font-black font-mono tracking-tighter dark:text-white ${breakExceeded ? 'text-rose-600' : ''}`}>{secondsToTime(totalBreakSec)}</div>
                       </div>
                       <div className="text-right space-y-1">
-                        <span className="text-[8px] font-black text-slate-400 uppercase leading-none">Remaining</span>
+                        <span className="text-[8px] font-black text-slate-400 uppercase leading-none">Total Pause Remaining</span>
                         <div className={`text-sm font-black font-mono tracking-tighter ${breakExceeded ? 'text-rose-600' : 'text-emerald-500'}`}>{secondsToTime(breakRemainingSec)}</div>
                       </div>
                     </div>
@@ -561,11 +561,11 @@ export default function App() {
             <div className="space-y-8 animate-in fade-in duration-500">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                  <h2 className="text-xl font-black uppercase tracking-wider dark:text-white">Sequential Performance Log</h2>
-                  <p className="text-slate-400 text-[10px] font-bold mt-1 uppercase tracking-widest">Excel Pattern • High Density Property Inspection</p>
+                  <h2 className="text-xl font-black uppercase tracking-wider dark:text-white">Sequential Performance Data</h2>
+                  <p className="text-slate-400 text-[10px] font-bold mt-1 uppercase tracking-widest">Full property inspection per extraction (Excel View)</p>
                 </div>
                 <div className="flex gap-3">
-                  <button onClick={() => viewingUser && exportToExcel(entries, viewingUser)} className="bg-indigo-600 px-6 py-3 text-white rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-600/20"><FileSpreadsheetIcon size={14}/> Performance XLSX</button>
+                  <button onClick={() => viewingUser && exportToExcel(entries, viewingUser)} className="bg-indigo-600 px-6 py-3 text-white rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-indigo-700 transition-all"><FileSpreadsheetIcon size={14}/> Performance XLSX</button>
                 </div>
               </div>
 
@@ -574,7 +574,7 @@ export default function App() {
                   <SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={18}/>
                   <input 
                     type="text" 
-                    placeholder="Search logs by date, shift or duration..." 
+                    placeholder="Global property search (Date, Shift, Dur)..." 
                     value={detailsSearchQuery} 
                     onChange={(e)=>setDetailsSearchQuery(e.target.value)} 
                     className="w-full py-4 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none pl-14 pr-8 text-xs font-bold border border-transparent focus:border-indigo-500/20 dark:text-white transition-all shadow-inner" 
@@ -585,17 +585,16 @@ export default function App() {
                   <table className="w-full text-left text-[10px] border-collapse min-w-[1200px]">
                     <thead className="bg-slate-50 dark:bg-slate-950 text-slate-400 uppercase font-black tracking-[0.1em] text-[8px] sticky top-0 z-10 border-b dark:border-slate-800">
                       <tr>
-                        <th className="px-4 py-5 whitespace-nowrap">Extraction Date</th>
-                        <th className="px-4 py-5">Shift</th>
+                        <th className="px-4 py-5 whitespace-nowrap">Date Recorded</th>
+                        <th className="px-4 py-5">Shift Type</th>
                         <th className="px-4 py-5">Login Dur.</th>
                         <th className="px-4 py-5">Talk Time</th>
                         <th className="px-4 py-5">Cust Talk</th>
-                        <th className="px-4 py-5">Hold Time</th>
+                        <th className="px-4 py-5">Wait Time</th>
                         <th className="px-4 py-5">Pause</th>
                         <th className="px-4 py-5">Dispo</th>
                         <th className="px-4 py-5">Dead</th>
-                        <th className="px-4 py-5">Total Break</th>
-                        <th className="px-4 py-5">Wait</th>
+                        <th className="px-4 py-5 font-black text-indigo-500">Total Break</th>
                         <th className="px-4 py-5 text-center">Inbound</th>
                         <th className="px-4 py-5 text-center">Outbound</th>
                         <th className="px-4 py-5 text-center">Status</th>
@@ -618,12 +617,11 @@ export default function App() {
                             <td className="px-4 py-5 font-mono font-black text-indigo-500">{e.currentLogin}</td>
                             <td className="px-4 py-5 font-mono dark:text-slate-300">{e.talk}</td>
                             <td className="px-4 py-5 font-mono dark:text-slate-300">{e.customerTalk}</td>
-                            <td className="px-4 py-5 font-mono dark:text-slate-300">{e.hold}</td>
+                            <td className="px-4 py-5 font-mono dark:text-slate-400">{e.wait}</td>
                             <td className="px-4 py-5 font-mono dark:text-slate-400">{e.pause}</td>
                             <td className="px-4 py-5 font-mono dark:text-slate-400">{e.dispo}</td>
                             <td className="px-4 py-5 font-mono dark:text-slate-400">{e.dead}</td>
                             <td className={`px-4 py-5 font-mono font-black ${bExceed ? 'text-rose-500' : 'text-emerald-500'}`}>{secondsToTime(tBrk)}</td>
-                            <td className="px-4 py-5 font-mono dark:text-slate-400">{e.wait}</td>
                             <td className="px-4 py-5 text-center font-black dark:text-slate-200">{e.inbound}</td>
                             <td className="px-4 py-5 text-center font-black dark:text-slate-200">{e.outbound || 0}</td>
                             <td className="px-4 py-5 text-center"><StatusBadge status={e.status}/></td>
@@ -637,7 +635,7 @@ export default function App() {
                         );
                       })}
                       {filteredDetailsEntries.length === 0 && (
-                        <tr><td colSpan={15} className="px-6 py-24 text-center text-slate-400 font-bold uppercase tracking-[0.2em] opacity-30">No sequential entries found matching criteria</td></tr>
+                        <tr><td colSpan={14} className="px-6 py-24 text-center text-slate-400 font-bold uppercase tracking-[0.2em] opacity-30">No sequential entries found matching audit filter</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -649,8 +647,8 @@ export default function App() {
           {activeTab === 'ot-log' && (
             <div className="space-y-8 animate-in fade-in duration-500">
               <div className="flex justify-between items-center">
-                <div><h2 className="text-xl font-black uppercase tracking-wider dark:text-white">Overtime Activity</h2><p className="text-slate-400 text-[10px] font-bold mt-1">Archive of shifts exceeding base duration requirements</p></div>
-                <button onClick={() => viewingUser && exportToExcel(otLogEntries, viewingUser)} className="bg-amber-600 px-6 py-3 text-white rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 shadow-lg shadow-amber-600/20 transition-all active:scale-95"><ZapIcon size={14}/> Save OT Records</button>
+                <div><h2 className="text-xl font-black uppercase tracking-wider dark:text-white">Overtime Activity Log</h2><p className="text-slate-400 text-[10px] font-bold mt-1">Archived records of session duration exceeding baseline requirements</p></div>
+                <button onClick={() => viewingUser && exportToExcel(otLogEntries, viewingUser)} className="bg-amber-600 px-6 py-3 text-white rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 shadow-lg hover:bg-amber-700 transition-all"><ZapIcon size={14}/> Save OT Records</button>
               </div>
 
               <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] overflow-hidden border dark:border-slate-800 shadow-sm">
@@ -661,7 +659,7 @@ export default function App() {
                         <th className="px-6 py-5">Shift Date</th>
                         <th className="px-6 py-5">Logged Duration</th>
                         <th className="px-6 py-5 text-center">Calculated OT</th>
-                        <th className="px-6 py-5 text-center">Approval Path</th>
+                        <th className="px-6 py-5 text-center">Status</th>
                         <th className="px-6 py-5 text-right">Commit Details</th>
                       </tr>
                     </thead>
@@ -698,9 +696,9 @@ export default function App() {
 
           {activeTab === 'admin' && (
             <div className="space-y-6 animate-in fade-in duration-500">
-              <div className="flex justify-between items-center"><h2 className="text-xl font-black uppercase dark:text-white">Team Hub</h2><button onClick={() => exportConsolidatedExcel(masterData)} className="bg-amber-600 px-6 py-4 text-white rounded-xl font-black text-[10px] uppercase shadow-xl shadow-amber-600/20">Master Analysis Report</button></div>
+              <div className="flex justify-between items-center"><h2 className="text-xl font-black uppercase dark:text-white">Admin Control Hub</h2><button onClick={() => exportConsolidatedExcel(masterData)} className="bg-amber-600 px-6 py-4 text-white rounded-xl font-black text-[10px] uppercase shadow-xl hover:bg-amber-700 transition-all">Master Analysis Report</button></div>
               <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-sm border dark:border-slate-800">
-                <div className="relative mb-8"><SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400" size={16}/><input type="text" placeholder="Search team by ID or name..." value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)} className="w-full py-5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none pl-14 pr-8 text-xs font-bold border border-transparent focus:border-amber-500/20 dark:text-white shadow-inner transition-all" /></div>
+                <div className="relative mb-8"><SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400" size={16}/><input type="text" placeholder="Search team by ID or name..." value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)} className="w-full py-5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none pl-14 pr-8 text-xs font-bold border focus:border-amber-500/20 dark:text-white" /></div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                   {allUsers.filter(u => u.name.toLowerCase().includes(searchQuery.toLowerCase()) || u.empId.toLowerCase().includes(searchQuery.toLowerCase())).map(u => (
                     <div key={u.id} className="p-6 bg-slate-50 dark:bg-slate-950 rounded-3xl flex items-center justify-between hover:ring-2 hover:ring-amber-500 transition-all cursor-pointer group shadow-sm" onClick={() => { setAdminViewingUserId(u.id); setActiveTab('details'); }}>
@@ -719,7 +717,7 @@ export default function App() {
           {activeTab === 'all-logs' && (
             <div className="animate-in fade-in duration-700 space-y-8">
               <div className="flex justify-between items-center">
-                <div><h2 className="text-xl font-black uppercase dark:text-white">Master Property Stream</h2><p className="text-[10px] text-slate-400 font-bold mt-1">Enterprise audit of all extracted session properties</p></div>
+                <div><h2 className="text-xl font-black uppercase dark:text-white">Master Property Stream</h2><p className="text-[10px] text-slate-400 font-bold mt-1">Consolidated audit of all team session extractions</p></div>
                 <button onClick={() => exportConsolidatedExcel(masterData)} className="bg-emerald-600 px-8 py-4 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-emerald-700 transition-all"><FileSpreadsheetIcon size={16} className="mr-2 inline"/> Generate Team Report</button>
               </div>
 
@@ -728,10 +726,10 @@ export default function App() {
                   <SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={18}/>
                   <input 
                     type="text" 
-                    placeholder="Global master filter: Agent name, ID, or Session date..." 
+                    placeholder="Global master filter: Agent name, ID, or Date..." 
                     value={masterSearchQuery} 
                     onChange={(e)=>setMasterSearchQuery(e.target.value)} 
-                    className="w-full py-5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none pl-14 pr-8 text-xs font-bold border border-transparent focus:border-indigo-500/20 dark:text-white shadow-inner transition-all" 
+                    className="w-full py-5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none pl-14 pr-8 text-xs font-bold border focus:border-indigo-500/20 dark:text-white transition-all shadow-inner" 
                   />
                 </div>
 
@@ -747,11 +745,11 @@ export default function App() {
                         <th className="px-4 py-5">Pause</th>
                         <th className="px-4 py-5">Dispo</th>
                         <th className="px-4 py-5">Dead</th>
-                        <th className="px-4 py-5">Total Break</th>
+                        <th className="px-4 py-5 font-black text-indigo-500">Total Break</th>
                         <th className="px-4 py-5 text-center">Inbound</th>
                         <th className="px-4 py-5 text-center">Outbound</th>
                         <th className="px-4 py-5 text-center">Status / OT</th>
-                        <th className="px-4 py-5 text-right">Control</th>
+                        <th className="px-4 py-5 text-right">Master Control</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y dark:divide-slate-800/50">
@@ -765,14 +763,14 @@ export default function App() {
                          return (
                           <tr key={log.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
                             <td className="px-4 py-5">
-                              <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-black text-[9px] shadow-sm">{log.userName?.charAt(0)}</div>
-                                <div><div className="font-black dark:text-slate-200 uppercase">{log.userName}</div><div className="text-[8px] font-mono text-slate-400 uppercase">{log.userId}</div></div>
+                              <div className="flex items-center gap-4">
+                                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-black text-[10px] shadow-sm">{log.userName?.charAt(0)}</div>
+                                <div><div className="font-black dark:text-slate-200 uppercase">{log.userName}</div><div className="text-[9px] font-mono text-slate-400 mt-0.5 uppercase">{log.userId}</div></div>
                               </div>
                             </td>
                             <td className="px-4 py-5">
-                              <div className="font-bold text-slate-600 dark:text-slate-400 text-[10px]">{new Date(log.date).toLocaleDateString()}</div>
-                              <div className="text-[7px] text-slate-400 uppercase font-black">{new Date(log.date).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
+                              <span className="font-bold text-slate-600 dark:text-slate-400 text-xs">{new Date(log.date).toLocaleDateString()}</span>
+                              <span className="block text-[9px] text-indigo-500 font-black mt-1 uppercase tracking-widest">{log.shiftType}</span>
                             </td>
                             <td className="px-4 py-5"><span className="text-[8px] text-indigo-500 font-black uppercase">{log.shiftType}</span></td>
                             <td className="px-4 py-5 font-mono font-black text-indigo-500">{log.currentLogin}</td>
@@ -784,20 +782,20 @@ export default function App() {
                             <td className="px-4 py-5 text-center font-black dark:text-slate-200">{log.inbound}</td>
                             <td className="px-4 py-5 text-center font-black dark:text-slate-200">{log.outbound || 0}</td>
                             <td className="px-4 py-5 text-center">
-                              <div className="flex flex-col items-center gap-1">
+                              <div className="flex flex-col items-center gap-2">
                                 <StatusBadge status={log.status} />
-                                {lSec > sBase && <span className="text-[7px] font-black text-amber-600 uppercase">OT: {secondsToTime(lSec - sBase)}</span>}
+                                {lSec > sBase && <span className="text-[8px] font-black text-amber-600 uppercase">OT: {secondsToTime(lSec - sBase)}</span>}
                               </div>
                             </td>
                             <td className="px-4 py-5 text-right">
-                               <div className="flex items-center justify-end gap-1">
+                               <div className="flex items-center justify-end gap-2">
                                  {log.status === 'Pending' && (
-                                   <>
-                                     <button onClick={() => updateStatus(log.userId, log.id, 'Approved')} className="p-2 bg-emerald-500/10 text-emerald-500 rounded-lg hover:bg-emerald-500 hover:text-white transition-all shadow-sm" title="Approve"><CheckCircleIcon size={14}/></button>
-                                     <button onClick={() => updateStatus(log.userId, log.id, 'Rejected')} className="p-2 bg-rose-500/10 text-rose-500 rounded-lg hover:bg-rose-500 hover:text-white transition-all shadow-sm" title="Reject"><XIcon size={14}/></button>
-                                   </>
+                                   <div className="flex gap-1.5">
+                                     <button onClick={() => updateStatus(log.userId, log.id, 'Approved')} className="p-2 bg-emerald-500/10 text-emerald-500 rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm" title="Approve"><CheckCircleIcon size={16}/></button>
+                                     <button onClick={() => updateStatus(log.userId, log.id, 'Rejected')} className="p-2 bg-rose-500/10 text-rose-500 rounded-xl hover:bg-rose-500 hover:text-white transition-all shadow-sm" title="Reject"><XIcon size={16}/></button>
+                                   </div>
                                  )}
-                                 <button onClick={() => deleteEntry(log.id, log.userId)} className="p-2 text-slate-300 hover:text-rose-500 transition-all" title="Wipe Session"><TrashIcon size={14}/></button>
+                                 <button onClick={() => deleteEntry(log.id, log.userId)} className="p-2.5 text-slate-300 hover:text-rose-500 transition-all" title="Wipe Session"><TrashIcon size={16}/></button>
                                </div>
                             </td>
                           </tr>
