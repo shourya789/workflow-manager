@@ -14,12 +14,10 @@ import {
   KeyIcon, 
   UserIcon, 
   IdCardIcon, 
-  CalendarIcon, 
   ArrowRightIcon, 
   MoonIcon, 
   SunIcon, 
   ShieldCheckIcon, 
-  ArrowLeftIcon, 
   SearchIcon, 
   ChevronRightIcon, 
   UsersIcon, 
@@ -28,7 +26,6 @@ import {
   ZapIcon, 
   CheckCircleIcon, 
   XCircleIcon,
-  FlagIcon, 
   TimerIcon, 
   ActivityIcon, 
   CircleMinusIcon, 
@@ -40,7 +37,7 @@ import {
   LayoutGridIcon,
   FileSpreadsheetIcon,
   AlertCircleIcon,
-  InfoIcon
+  ArrowLeftIcon
 } from 'lucide-react';
 import { TimeData, User, ShiftType, EntryStatus } from './types';
 import { timeToSeconds, secondsToTime, autoCorrectTime } from './utils';
@@ -383,7 +380,7 @@ export default function App() {
             <div className="flex flex-col items-center text-center">
               <div className="p-4 bg-amber-500/10 rounded-3xl text-amber-500 mb-6"><AlertCircleIcon size={40}/></div>
               <h3 className="text-xl font-black dark:text-white uppercase tracking-tight">Overtime Threshold</h3>
-              <p className="text-xs text-slate-500 mt-2">Duration <strong>{formData.currentLogin}</strong> exceeds baseline shift requirements.</p>
+              <p className="text-xs text-slate-500 mt-2">Duration <strong>{formData.currentLogin}</strong> exceeds base shift requirements.</p>
             </div>
             <div className="space-y-3">
               <button onClick={() => commitRecord(true)} className="w-full py-4 bg-amber-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl">Apply for OT Approval</button>
@@ -475,11 +472,9 @@ export default function App() {
               </div>
               
               <div className="lg:col-span-4 space-y-6">
-                {/* Visual Representation Section */}
                 <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] shadow-sm border dark:border-slate-800 space-y-8">
                   <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Real-time Session Status</p>
                   
-                  {/* Login Progress */}
                   <div className="space-y-4">
                     <div className="flex justify-between items-end">
                       <div className="space-y-1">
@@ -503,11 +498,10 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Break Progress (Pause + Dispo + Dead) */}
                   <div className="space-y-4">
                     <div className="flex justify-between items-end">
                       <div className="space-y-1">
-                        <span className="text-[8px] font-black text-slate-400 uppercase leading-none">Cumulative Break Used</span>
+                        <span className="text-[8px] font-black text-slate-400 uppercase leading-none">Break Balance Used</span>
                         <div className={`text-2xl font-black font-mono tracking-tighter dark:text-white ${breakExceeded ? 'text-rose-600' : ''}`}>{secondsToTime(totalBreakSec)}</div>
                       </div>
                       <div className="text-right space-y-1">
@@ -562,10 +556,10 @@ export default function App() {
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                   <h2 className="text-xl font-black uppercase tracking-wider dark:text-white">Sequential Performance Data</h2>
-                  <p className="text-slate-400 text-[10px] font-bold mt-1 uppercase tracking-widest">Full property inspection per extraction (Excel View)</p>
+                  <p className="text-slate-400 text-[10px] font-bold mt-1 uppercase tracking-widest">Excel-style Property Inspection</p>
                 </div>
                 <div className="flex gap-3">
-                  <button onClick={() => viewingUser && exportToExcel(entries, viewingUser)} className="bg-indigo-600 px-6 py-3 text-white rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-indigo-700 transition-all"><FileSpreadsheetIcon size={14}/> Performance XLSX</button>
+                  <button onClick={() => viewingUser && exportToExcel(entries, viewingUser)} className="bg-indigo-600 px-6 py-3 text-white rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-600/20"><FileSpreadsheetIcon size={14}/> Performance XLSX</button>
                 </div>
               </div>
 
@@ -574,7 +568,7 @@ export default function App() {
                   <SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={18}/>
                   <input 
                     type="text" 
-                    placeholder="Global property search (Date, Shift, Dur)..." 
+                    placeholder="Search logs by date, shift or duration..." 
                     value={detailsSearchQuery} 
                     onChange={(e)=>setDetailsSearchQuery(e.target.value)} 
                     className="w-full py-4 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none pl-14 pr-8 text-xs font-bold border border-transparent focus:border-indigo-500/20 dark:text-white transition-all shadow-inner" 
@@ -582,19 +576,20 @@ export default function App() {
                 </div>
 
                 <div className="overflow-x-auto rounded-[2rem] border dark:border-slate-800/50">
-                  <table className="w-full text-left text-[10px] border-collapse min-w-[1200px]">
+                  <table className="w-full text-left text-[10px] border-collapse min-w-[1300px]">
                     <thead className="bg-slate-50 dark:bg-slate-950 text-slate-400 uppercase font-black tracking-[0.1em] text-[8px] sticky top-0 z-10 border-b dark:border-slate-800">
                       <tr>
-                        <th className="px-4 py-5 whitespace-nowrap">Date Recorded</th>
-                        <th className="px-4 py-5">Shift Type</th>
+                        <th className="px-4 py-5 whitespace-nowrap">Extraction Date</th>
+                        <th className="px-4 py-5">Shift</th>
                         <th className="px-4 py-5">Login Dur.</th>
                         <th className="px-4 py-5">Talk Time</th>
                         <th className="px-4 py-5">Cust Talk</th>
-                        <th className="px-4 py-5">Wait Time</th>
+                        <th className="px-4 py-5">Hold Time</th>
                         <th className="px-4 py-5">Pause</th>
                         <th className="px-4 py-5">Dispo</th>
                         <th className="px-4 py-5">Dead</th>
-                        <th className="px-4 py-5 font-black text-indigo-500">Total Break</th>
+                        <th className="px-4 py-5 font-bold text-indigo-500">Total Break</th>
+                        <th className="px-4 py-5">Wait</th>
                         <th className="px-4 py-5 text-center">Inbound</th>
                         <th className="px-4 py-5 text-center">Outbound</th>
                         <th className="px-4 py-5 text-center">Status</th>
@@ -617,11 +612,12 @@ export default function App() {
                             <td className="px-4 py-5 font-mono font-black text-indigo-500">{e.currentLogin}</td>
                             <td className="px-4 py-5 font-mono dark:text-slate-300">{e.talk}</td>
                             <td className="px-4 py-5 font-mono dark:text-slate-300">{e.customerTalk}</td>
-                            <td className="px-4 py-5 font-mono dark:text-slate-400">{e.wait}</td>
+                            <td className="px-4 py-5 font-mono dark:text-slate-300">{e.hold}</td>
                             <td className="px-4 py-5 font-mono dark:text-slate-400">{e.pause}</td>
                             <td className="px-4 py-5 font-mono dark:text-slate-400">{e.dispo}</td>
                             <td className="px-4 py-5 font-mono dark:text-slate-400">{e.dead}</td>
                             <td className={`px-4 py-5 font-mono font-black ${bExceed ? 'text-rose-500' : 'text-emerald-500'}`}>{secondsToTime(tBrk)}</td>
+                            <td className="px-4 py-5 font-mono dark:text-slate-400">{e.wait}</td>
                             <td className="px-4 py-5 text-center font-black dark:text-slate-200">{e.inbound}</td>
                             <td className="px-4 py-5 text-center font-black dark:text-slate-200">{e.outbound || 0}</td>
                             <td className="px-4 py-5 text-center"><StatusBadge status={e.status}/></td>
@@ -635,7 +631,7 @@ export default function App() {
                         );
                       })}
                       {filteredDetailsEntries.length === 0 && (
-                        <tr><td colSpan={14} className="px-6 py-24 text-center text-slate-400 font-bold uppercase tracking-[0.2em] opacity-30">No sequential entries found matching audit filter</td></tr>
+                        <tr><td colSpan={15} className="px-6 py-24 text-center text-slate-400 font-bold uppercase tracking-[0.2em] opacity-30">No sequential entries recorded matching search criteria</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -647,8 +643,8 @@ export default function App() {
           {activeTab === 'ot-log' && (
             <div className="space-y-8 animate-in fade-in duration-500">
               <div className="flex justify-between items-center">
-                <div><h2 className="text-xl font-black uppercase tracking-wider dark:text-white">Overtime Activity Log</h2><p className="text-slate-400 text-[10px] font-bold mt-1">Archived records of session duration exceeding baseline requirements</p></div>
-                <button onClick={() => viewingUser && exportToExcel(otLogEntries, viewingUser)} className="bg-amber-600 px-6 py-3 text-white rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 shadow-lg hover:bg-amber-700 transition-all"><ZapIcon size={14}/> Save OT Records</button>
+                <div><h2 className="text-xl font-black uppercase tracking-wider dark:text-white">Overtime Activity Log</h2><p className="text-slate-400 text-[10px] font-bold mt-1">Archive of sessions that exceeded base duration requirements</p></div>
+                <button onClick={() => viewingUser && exportToExcel(otLogEntries, viewingUser)} className="bg-amber-600 px-6 py-3 text-white rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 shadow-lg shadow-amber-600/20 hover:bg-amber-700 transition-all"><ZapIcon size={14}/> Save OT Records</button>
               </div>
 
               <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] overflow-hidden border dark:border-slate-800 shadow-sm">
@@ -659,7 +655,7 @@ export default function App() {
                         <th className="px-6 py-5">Shift Date</th>
                         <th className="px-6 py-5">Logged Duration</th>
                         <th className="px-6 py-5 text-center">Calculated OT</th>
-                        <th className="px-6 py-5 text-center">Status</th>
+                        <th className="px-6 py-5 text-center">Approval Path</th>
                         <th className="px-6 py-5 text-right">Commit Details</th>
                       </tr>
                     </thead>
@@ -696,9 +692,9 @@ export default function App() {
 
           {activeTab === 'admin' && (
             <div className="space-y-6 animate-in fade-in duration-500">
-              <div className="flex justify-between items-center"><h2 className="text-xl font-black uppercase dark:text-white">Admin Control Hub</h2><button onClick={() => exportConsolidatedExcel(masterData)} className="bg-amber-600 px-6 py-4 text-white rounded-xl font-black text-[10px] uppercase shadow-xl hover:bg-amber-700 transition-all">Master Analysis Report</button></div>
+              <div className="flex justify-between items-center"><h2 className="text-xl font-black uppercase dark:text-white">Team Hub</h2><button onClick={() => exportConsolidatedExcel(masterData)} className="bg-amber-600 px-6 py-4 text-white rounded-xl font-black text-[10px] uppercase shadow-xl hover:bg-amber-700 transition-all">Master Analysis Report</button></div>
               <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-sm border dark:border-slate-800">
-                <div className="relative mb-8"><SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400" size={16}/><input type="text" placeholder="Search team by ID or name..." value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)} className="w-full py-5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none pl-14 pr-8 text-xs font-bold border focus:border-amber-500/20 dark:text-white" /></div>
+                <div className="relative mb-8 group"><SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-amber-500 transition-colors" size={16}/><input type="text" placeholder="Search team by ID or name..." value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)} className="w-full py-5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none pl-14 pr-8 text-xs font-bold border focus:border-amber-500/20 dark:text-white shadow-inner" /></div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                   {allUsers.filter(u => u.name.toLowerCase().includes(searchQuery.toLowerCase()) || u.empId.toLowerCase().includes(searchQuery.toLowerCase())).map(u => (
                     <div key={u.id} className="p-6 bg-slate-50 dark:bg-slate-950 rounded-3xl flex items-center justify-between hover:ring-2 hover:ring-amber-500 transition-all cursor-pointer group shadow-sm" onClick={() => { setAdminViewingUserId(u.id); setActiveTab('details'); }}>
@@ -717,21 +713,13 @@ export default function App() {
           {activeTab === 'all-logs' && (
             <div className="animate-in fade-in duration-700 space-y-8">
               <div className="flex justify-between items-center">
-                <div><h2 className="text-xl font-black uppercase dark:text-white">Master Property Stream</h2><p className="text-[10px] text-slate-400 font-bold mt-1">Consolidated audit of all team session extractions</p></div>
-                <button onClick={() => exportConsolidatedExcel(masterData)} className="bg-emerald-600 px-8 py-4 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-emerald-700 transition-all"><FileSpreadsheetIcon size={16} className="mr-2 inline"/> Generate Team Report</button>
+                <div><h2 className="text-xl font-black uppercase dark:text-white">Master Property Stream</h2><p className="text-[10px] text-slate-400 font-bold mt-1">Enterprise audit of all extracted session properties (Excel Pattern)</p></div>
+                <button onClick={() => exportConsolidatedExcel(masterData)} className="bg-emerald-600 px-8 py-4 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-emerald-700 transition-all shadow-emerald-600/20"><FileSpreadsheetIcon size={16} className="mr-2 inline"/> Generate Team Report</button>
               </div>
 
               <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border dark:border-slate-800 shadow-sm space-y-6">
                 <div className="relative group max-w-lg">
-                  <SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={18}/>
-                  <input 
-                    type="text" 
-                    placeholder="Global master filter: Agent name, ID, or Date..." 
-                    value={masterSearchQuery} 
-                    onChange={(e)=>setMasterSearchQuery(e.target.value)} 
-                    className="w-full py-5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none pl-14 pr-8 text-xs font-bold border focus:border-indigo-500/20 dark:text-white transition-all shadow-inner" 
-                  />
-                </div>
+                  <SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={18}/><input type="text" placeholder="Global master filter: Agent name, ID, or Session date..." value={masterSearchQuery} onChange={(e)=>setMasterSearchQuery(e.target.value)} className="w-full py-5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none pl-14 pr-8 text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner" /></div>
 
                 <div className="overflow-x-auto rounded-[2.5rem] border dark:border-slate-800">
                   <table className="w-full text-left text-[10px] min-w-[1300px]">
