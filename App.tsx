@@ -186,7 +186,10 @@ export default function App() {
         })); 
         setRawText(''); 
       }
-    } catch (e) { alert("Extraction failed."); } finally { setIsParsing(false); }
+    } catch (e) { 
+      console.error(e);
+      alert("AI extraction failed. Please ensure the API Key is correctly configured in the environment."); 
+    } finally { setIsParsing(false); }
   };
 
   const loginSec = timeToSeconds(formData.currentLogin);
@@ -245,8 +248,8 @@ export default function App() {
     const updated = savedEntries.map((e: TimeData) => e.id === entryId ? { ...e, status: newStatus } : e);
     localStorage.setItem(`entries_${internalUser.id}`, JSON.stringify(updated));
     if (adminViewingUserId === internalUser.id) setEntries(updated);
-    else if (!adminViewingUserId && activeTab === 'all-logs') setAllUsers([...allUsers]);
-    alert(`Status updated.`);
+    else if (!adminViewingUserId && (activeTab === 'all-logs' || activeTab === 'admin')) setAllUsers([...allUsers]);
+    alert(`Status updated to ${newStatus}.`);
   };
 
   const deleteEntry = (id: string, logOwnerEmpId?: string) => {
