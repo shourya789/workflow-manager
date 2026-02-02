@@ -5,8 +5,9 @@ export default async function handler(req: any, res: any) {
   const { text } = req.body || {};
   if (!text || !text.trim()) return res.status(400).json({ error: 'Missing `text` in request body' });
 
-  const apiKey = process.env.GENAI_API_KEY || process.env.API_KEY;
-  if (!apiKey) return res.status(500).json({ error: 'Server misconfiguration: missing GENAI_API_KEY' });
+  // Accept either server-side GENAI_API_KEY, legacy API_KEY, or a Vite-provided VITE_GEMINI_API_KEY
+  const apiKey = process.env.GENAI_API_KEY || process.env.API_KEY || process.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) return res.status(500).json({ error: 'Server misconfiguration: missing GENAI_API_KEY (or VITE_GEMINI_API_KEY)' });
 
   const ai = new GoogleGenAI({ apiKey });
 
