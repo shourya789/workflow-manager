@@ -91,6 +91,7 @@ export default function App() {
   const [formData, setFormData] = useState(INITIAL_FORM_STATE);
   const [isParsing, setIsParsing] = useState(false);
   const [rawText, setRawText] = useState('');
+  const [parseFailures, setParseFailures] = useState(0);
   const [activeTab, setActiveTab] = useState<'calc' | 'details' | 'admin' | 'all-logs' | 'ot-log'>('calc');
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [shiftType, setShiftType] = useState<ShiftType>('Full Day');
@@ -186,9 +187,10 @@ export default function App() {
         })); 
         setRawText(''); 
       }
-    } catch (e) { 
+    } catch (e: any) { 
       console.error(e);
-      alert("AI extraction failed. Please ensure the API Key is correctly configured in the environment."); 
+      setParseFailures(prev => prev + 1);
+      alert(`AI extraction failed: ${e?.message || 'Check server logs and ensure GENAI_API_KEY is set on Vercel'}`);
     } finally { setIsParsing(false); }
   };
 
@@ -377,6 +379,12 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-slate-50 dark:bg-slate-950 transition-colors">
+      {parseFailures >= 3 && (
+        <div className="w-full p-4 bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-700 text-rose-700 dark:text-rose-200 flex justify-between items-center mb-4">
+          <div className="text-sm font-bold">AI parsing has failed multiple times. Verify <code className="font-mono">GENAI_API_KEY</code> in Vercel or check server logs.</div>
+          <div><button onClick={() => setParseFailures(0)} className="px-3 py-2 bg-rose-600 text-white rounded-lg text-xs font-bold">Dismiss</button></div>
+        </div>
+      )}
       {showOTModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl p-10 space-y-6 animate-in zoom-in duration-300">
