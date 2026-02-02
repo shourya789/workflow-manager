@@ -1,8 +1,27 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
 export default async function handler(req: any, res: any) {
+  console.log('parse handler invoked', { method: req.method, headers: req.headers && Object.keys(req.headers).length });
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
-  const { text } = req.body || {};
+
+  // Prefer parsed body but capture raw body for debugging if missing
+  let text: string | undefined = undefined;
+  if (req.body && typeof req.body === 'object' && 'text' in req.body) {
+    text = req.body.text;
+    console.log('body.text present');
+  } else {
+    try {
+      let raw = '';
+      req.on && req.on('data', (c: any) => raw += c);
+      await new Promise((resolve) => req.on && req.on('end', resolve));
+      console.log('raw body:', raw?.substring ? raw.substring(0, 200) : raw);
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && typeof parsed === 'object' && 'text' in parsed) text = parsed.text;
+    } catch (err) {
+      console.warn('Failed to parse raw body', err && err.message);
+    }
+  }
+
   if (!text || !text.trim()) return res.status(400).json({ error: 'Missing `text` in request body' });
 
   // Accept either server-side GENAI_API_KEY, legacy API_KEY, or a Vite-provided VITE_GEMINI_API_KEY
