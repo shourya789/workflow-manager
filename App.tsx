@@ -92,7 +92,7 @@ export default function App() {
   const [isParsing, setIsParsing] = useState(false);
   const [rawText, setRawText] = useState('');
   const [parseFailures, setParseFailures] = useState(0);
-  const [activeTab, setActiveTab] = useState<'calc' | 'details' | 'admin' | 'all-logs' | 'ot-log'>('calc');
+  const [activeTab, setActiveTab] = useState<'calc' | 'details' | 'admin' | 'all-logs' | 'ot-log' | 'ot-admin' | 'users'>('calc');
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [shiftType, setShiftType] = useState<ShiftType>('Full Day');
   const [showOTModal, setShowOTModal] = useState(false);
@@ -243,16 +243,7 @@ export default function App() {
     commitRecord(false);
   };
 
-  const updateStatus = (userId: string, entryId: string, newStatus: EntryStatus) => {
-    const internalUser = allUsers.find(u => u.empId.toLowerCase() === userId.toLowerCase());
-    if (!internalUser) return;
-    const savedEntries = JSON.parse(localStorage.getItem(`entries_${internalUser.id}`) || '[]');
-    const updated = savedEntries.map((e: TimeData) => e.id === entryId ? { ...e, status: newStatus } : e);
-    localStorage.setItem(`entries_${internalUser.id}`, JSON.stringify(updated));
-    if (adminViewingUserId === internalUser.id) setEntries(updated);
-    else if (!adminViewingUserId && (activeTab === 'all-logs' || activeTab === 'admin')) setAllUsers([...allUsers]);
-    alert(`Status updated to ${newStatus}.`);
-  };
+
 
   const deleteEntry = (id: string, logOwnerEmpId?: string) => {
     if (!confirm("Permanently delete this entry?")) return;
@@ -263,6 +254,26 @@ export default function App() {
     localStorage.setItem(`entries_${targetId}`, JSON.stringify(filtered));
     if (adminViewingUserId === targetId || user?.id === targetId) setEntries(filtered);
     setAllUsers([...allUsers]);
+  };
+
+  const deleteUser = (id: string) => {
+    if (!confirm('Delete user and all entries? This cannot be undone.')) return;
+    const updated = allUsers.filter(u => u.id !== id);
+    localStorage.setItem('registered_users', JSON.stringify(updated));
+    localStorage.removeItem(`entries_${id}`);
+    setAllUsers(updated);
+    if (adminViewingUserId === id) { setAdminViewingUserId(null); setEntries([]); }
+  };
+
+  const updateStatus = (userId: string, entryId: string, newStatus: EntryStatus, reason?: string) => {
+    const internalUser = allUsers.find(u => u.empId.toLowerCase() === userId.toLowerCase());
+    if (!internalUser) return;
+    const savedEntries = JSON.parse(localStorage.getItem(`entries_${internalUser.id}`) || '[]');
+    const updated = savedEntries.map((e: TimeData) => e.id === entryId ? { ...e, status: newStatus, reason: reason !== undefined ? reason : e.reason } : e);
+    localStorage.setItem(`entries_${internalUser.id}`, JSON.stringify(updated));
+    if (adminViewingUserId === internalUser.id) setEntries(updated);
+    else if (!adminViewingUserId && (activeTab === 'all-logs' || activeTab === 'admin')) setAllUsers([...allUsers]);
+    alert(`Status updated to ${newStatus}.`);
   };
 
   const startEdit = (entry: TimeData) => {
@@ -416,6 +427,8 @@ export default function App() {
             <>
               <button onClick={() => { setAdminViewingUserId(null); setActiveTab('admin'); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'admin' && !adminViewingUserId ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:bg-white/5'}`}><UsersIcon size={16}/> Team Hub</button>
               <button onClick={() => { setAdminViewingUserId(null); setActiveTab('all-logs'); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'all-logs' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:bg-white/5'}`}><LayersIcon size={16}/> Master Stream</button>
+              <button onClick={() => { setAdminViewingUserId(null); setActiveTab('ot-admin'); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'ot-admin' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:bg-white/5'}`}><ZapIcon size={16}/> OT Admin</button>
+              <button onClick={() => { setAdminViewingUserId(null); setActiveTab('users'); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'users' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:bg-white/5'}`}><KeyIcon size={16}/> User Accounts</button>
             </>
           )}
           <button onClick={() => setActiveTab('calc')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'calc' ? 'bg-indigo-600' : 'text-slate-400 hover:bg-white/5'}`}><ClockIcon size={16}/> Dashboard</button>
@@ -475,6 +488,12 @@ export default function App() {
                       <div key={f.n} className="space-y-1.5"><label className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5 pl-1">{f.i} {f.l}</label><input type={f.t || 'text'} value={(formData as any)[f.n]} onChange={(e)=>setFormData({...formData, [f.n]: f.t === 'number' ? parseInt(e.target.value) || 0 : e.target.value})} onBlur={(e)=> f.t !== 'number' && setFormData({...formData, [f.n]: autoCorrectTime(e.target.value)})} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-xl outline-none border focus:border-indigo-500/20 font-mono text-xs dark:text-white" /></div>
                     ))}
                   </div>
+
+                  <div className="mt-6">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Notes / Reason</label>
+                    <textarea value={formData.reason} onChange={(e)=>setFormData({...formData, reason: e.target.value})} placeholder="Optional note: reason for OT or any comment" className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-950 rounded-xl outline-none border focus:border-indigo-500/20 font-mono text-xs dark:text-white" rows={3} />
+                  </div>
+
                   <div className="flex gap-3 mt-8">
                     {editingId && ( <button onClick={() => { setEditingId(null); setFormData(INITIAL_FORM_STATE); }} className="px-6 py-4 bg-slate-200 text-slate-600 rounded-2xl font-black text-[10px] uppercase">Cancel</button> )}
                     <button onClick={saveToHistory} className={`flex-1 py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl text-white bg-indigo-600`}>{editingId ? 'Update Session' : 'Commit Audit'}</button>
@@ -601,8 +620,9 @@ export default function App() {
                         <th className="px-4 py-5">Dead</th>
                         <th className="px-4 py-5 font-bold text-indigo-500">Total Break</th>
                         <th className="px-4 py-5">Wait</th>
+                        <th className="px-4 py-5">Reason</th>
                         <th className="px-4 py-5 text-center">Inbound</th>
-                        <th className="px-4 py-5 text-center">Outbound</th>
+                        <th className="px-4 py-5 text-center">Outbound</th> 
                         <th className="px-4 py-5 text-center">Status</th>
                         <th className="px-4 py-5 text-right">Actions</th>
                       </tr>
@@ -629,6 +649,7 @@ export default function App() {
                             <td className="px-4 py-5 font-mono dark:text-slate-400">{e.dead}</td>
                             <td className={`px-4 py-5 font-mono font-black ${bExceed ? 'text-rose-500' : 'text-emerald-500'}`}>{secondsToTime(tBrk)}</td>
                             <td className="px-4 py-5 font-mono dark:text-slate-400">{e.wait}</td>
+                            <td className="px-4 py-5 text-sm text-slate-600">{e.reason ? (e.reason.length > 80 ? e.reason.slice(0,77) + '...' : e.reason) : '-'}</td>
                             <td className="px-4 py-5 text-center font-black dark:text-slate-200">{e.inbound}</td>
                             <td className="px-4 py-5 text-center font-black dark:text-slate-200">{e.outbound || 0}</td>
                             <td className="px-4 py-5 text-center"><StatusBadge status={e.status}/></td>
@@ -642,7 +663,7 @@ export default function App() {
                         );
                       })}
                       {filteredDetailsEntries.length === 0 && (
-                        <tr><td colSpan={15} className="px-6 py-24 text-center text-slate-400 font-bold uppercase tracking-[0.2em] opacity-30">No sequential entries recorded matching search criteria</td></tr>
+                        <tr><td colSpan={16} className="px-6 py-24 text-center text-slate-400 font-bold uppercase tracking-[0.2em] opacity-30">No sequential entries recorded matching search criteria</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -667,8 +688,9 @@ export default function App() {
                         <th className="px-6 py-5">Logged Duration</th>
                         <th className="px-6 py-5 text-center">Calculated OT</th>
                         <th className="px-6 py-5 text-center">Approval Path</th>
+                        <th className="px-6 py-5">Reason</th>
                         <th className="px-6 py-5 text-right">Commit Details</th>
-                      </tr>
+                      </tr> 
                     </thead>
                     <tbody className="divide-y dark:divide-slate-800/50">
                       {otLogEntries.map(e => {
@@ -685,6 +707,7 @@ export default function App() {
                             <td className="px-6 py-6 text-center">
                                <StatusBadge status={e.status} />
                             </td>
+                            <td className="px-6 py-6 text-sm text-slate-600">{e.reason ? (e.reason.length > 80 ? e.reason.slice(0,77) + '...' : e.reason) : '-'}</td>
                             <td className="px-6 py-6 text-right">
                                <button onClick={() => startEdit(e)} className="text-indigo-500 hover:bg-indigo-500/5 px-3 py-1.5 rounded-lg font-bold text-[9px] uppercase transition-colors">Inspect Session</button>
                             </td>
@@ -692,7 +715,7 @@ export default function App() {
                         );
                       })}
                       {otLogEntries.length === 0 && (
-                        <tr><td colSpan={5} className="px-6 py-24 text-center text-slate-400 font-bold uppercase tracking-widest opacity-30">No Overtime Activity Detected</td></tr>
+                        <tr><td colSpan={6} className="px-6 py-24 text-center text-slate-400 font-bold uppercase tracking-widest opacity-30">No Overtime Activity Detected</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -713,7 +736,10 @@ export default function App() {
                         <div className="w-12 h-12 bg-amber-600/10 text-amber-600 rounded-2xl flex items-center justify-center font-black text-xs group-hover:bg-amber-600 group-hover:text-white transition-all shadow-inner">{u.name.charAt(0)}</div>
                         <div className="overflow-hidden"><p className="text-xs font-black dark:text-white uppercase truncate">{u.name}</p><p className="text-[9px] font-mono text-slate-400 uppercase tracking-tighter mt-1">{u.empId}</p></div>
                       </div>
-                      <ChevronRightIcon size={18} className="text-slate-300 group-hover:translate-x-2 transition-all" />
+                      <div className="flex items-center gap-3">
+                        <button onClick={(ev)=>{ ev.stopPropagation(); if(!confirm('Delete user and all their entries?')) return; deleteUser(u.id); }} title="Delete User" className="p-2 bg-rose-50/20 rounded-xl text-rose-500 hover:bg-rose-500/10 transition-all"><TrashIcon size={14}/></button>
+                        <ChevronRightIcon size={18} className="text-slate-300 group-hover:translate-x-2 transition-all" />
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -747,6 +773,7 @@ export default function App() {
                         <th className="px-4 py-5 font-black text-indigo-500">Total Break</th>
                         <th className="px-4 py-5 text-center">Inbound</th>
                         <th className="px-4 py-5 text-center">Outbound</th>
+                        <th className="px-4 py-5">Reason</th>
                         <th className="px-4 py-5 text-center">Status / OT</th>
                         <th className="px-4 py-5 text-right">Master Control</th>
                       </tr>
@@ -780,6 +807,7 @@ export default function App() {
                             <td className={`px-4 py-5 font-mono font-black ${bExceed ? 'text-rose-500' : 'text-emerald-500'}`}>{secondsToTime(tBrk)}</td>
                             <td className="px-4 py-5 text-center font-black dark:text-slate-200">{log.inbound}</td>
                             <td className="px-4 py-5 text-center font-black dark:text-slate-200">{log.outbound || 0}</td>
+                            <td className="px-4 py-5 text-sm text-slate-600">{log.reason ? (log.reason.length > 80 ? log.reason.slice(0,77) + '...' : log.reason) : '-'}</td>
                             <td className="px-4 py-5 text-center">
                               <div className="flex flex-col items-center gap-2">
                                 <StatusBadge status={log.status} />
@@ -790,8 +818,8 @@ export default function App() {
                                <div className="flex items-center justify-end gap-2">
                                  {log.status === 'Pending' && (
                                    <div className="flex gap-1.5">
-                                     <button onClick={() => updateStatus(log.userId, log.id, 'Approved')} className="p-2 bg-emerald-500/10 text-emerald-500 rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm" title="Approve"><CheckCircleIcon size={16}/></button>
-                                     <button onClick={() => updateStatus(log.userId, log.id, 'Rejected')} className="p-2 bg-rose-500/10 text-rose-500 rounded-xl hover:bg-rose-500 hover:text-white transition-all shadow-sm" title="Reject"><XIcon size={16}/></button>
+                                     <button onClick={() => { const r = prompt('Optional note for approval', log.reason||''); updateStatus(log.userId, log.id, 'Approved', r||undefined); }} className="p-2 bg-emerald-500/10 text-emerald-500 rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm" title="Approve"><CheckCircleIcon size={16}/></button>
+                                     <button onClick={() => { const r = prompt('Optional rejection note', log.reason||''); updateStatus(log.userId, log.id, 'Rejected', r||undefined); }} className="p-2 bg-rose-500/10 text-rose-500 rounded-xl hover:bg-rose-500 hover:text-white transition-all shadow-sm" title="Reject"><XIcon size={16}/></button>
                                    </div>
                                  )}
                                  <button onClick={() => deleteEntry(log.id, log.userId)} className="p-2.5 text-slate-300 hover:text-rose-500 transition-all" title="Wipe Session"><TrashIcon size={16}/></button>
