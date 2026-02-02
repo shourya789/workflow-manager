@@ -31,7 +31,9 @@ export default async function handler(req: any, res: any) {
   const ai = new GoogleGenAI({ apiKey });
 
   try {
-    const response = await ai.models.generateContent({
+    console.log('Invoking GenAI - starting request');
+    const timeoutMs = 55_000; // preemptive timeout a bit under function max duration
+    const genaiPromise = ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: `You are a specialized data extractor for dialer performance reports. 
       Look at the provided text and extract these 12 specific values. 
@@ -83,7 +85,12 @@ export default async function handler(req: any, res: any) {
       }
     });
 
-    const responseText = response.text;
+    const response = await Promise.race([
+      genaiPromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('genai_timeout')), timeoutMs))
+    ]);
+
+    const responseText = (response as any).text;
     if (!responseText) return res.status(502).json({ error: 'Empty AI response' });
 
     const rawResult = JSON.parse(responseText.trim());
@@ -116,6 +123,10 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json(result);
   } catch (e: any) {
     console.error('Gemini server error:', e);
+    if (e && e.message === 'genai_timeout') {
+      console.error('GenAI request timed out after timeoutMs');
+      return res.status(504).json({ error: 'GenAI request timed out' });
+    }
     const status = e?.status || 500;
     const body = e?.response || e?.message || 'Unknown server error';
     return res.status(status === 400 || status === 401 || status === 403 ? status : 500).json({ error: body });
