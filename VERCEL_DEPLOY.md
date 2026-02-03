@@ -17,9 +17,12 @@ Local testing 🧪
 
 - Locally you can set the environment variable and run the dev server:
   - On Windows PowerShell: $Env:GENAI_API_KEY = "your_key_here"; npm run dev
+- **Important:** Standard `npm run dev` will NOT serve the API functions. You must use Vercel CLI.
 
 - You can also run Vercel locally to emulate the serverless function:
+- Run Vercel locally to emulate the serverless function:
   - Install Vercel CLI: npm i -g vercel
+  - Set `GEMINI_API_KEY` in your `.env.local` file.
   - Run: vercel dev
 
 Deploying with Vercel CLI (optional):
