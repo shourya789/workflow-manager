@@ -42,7 +42,7 @@ import {
 import { TimeData, User, ShiftType, EntryStatus } from './types';
 import { timeToSeconds, secondsToTime, autoCorrectTime } from './utils';
 import { parseRawTimeData } from './services/geminiService';
-import { exportToExcel, exportConsolidatedExcel } from './services/excelService';
+import { exportToExcel, exportConsolidatedExcel, exportDailyPerformanceReport } from './services/excelService';
 
 const MILESTONES = [1800, 2100, 2500];
 
@@ -105,6 +105,8 @@ export default function App() {
   const [masterSearchQuery, setMasterSearchQuery] = useState('');
   const [masterStatusFilter, setMasterStatusFilter] = useState<'All' | EntryStatus>('All');
   const [masterShiftFilter, setMasterShiftFilter] = useState<'All' | ShiftType>('All');
+  const [masterDateStart, setMasterDateStart] = useState('');
+  const [masterDateEnd, setMasterDateEnd] = useState('');
   const [showPasswords, setShowPasswords] = useState(false);
   const [masterDataServer, setMasterDataServer] = useState<TimeData[]>([]);
   const [migrations, setMigrations] = useState<any[]>([]);
@@ -115,6 +117,16 @@ export default function App() {
   const [actionedEntry, setActionedEntry] = useState<TimeData | null>(null);
   const [approvalModalOpen, setApprovalModalOpen] = useState(false);
   const [approvalReason, setApprovalReason] = useState('');
+
+  // Advanced Search State
+  const [detailsDateStart, setDetailsDateStart] = useState('');
+  const [detailsDateEnd, setDetailsDateEnd] = useState('');
+  const [detailsStatusFilter, setDetailsStatusFilter] = useState<'All' | EntryStatus>('All');
+  const [detailsShiftFilter, setDetailsShiftFilter] = useState<'All' | ShiftType>('All');
+
+  // Reset Data State
+  const [showResetConfirm1, setShowResetConfirm1] = useState(false);
+  const [showResetConfirm2, setShowResetConfirm2] = useState(false);
 
   const fetchMasterData = async () => {
     try {
@@ -355,8 +367,18 @@ export default function App() {
           const loginPassword = authRole === 'admin' ? password : password;
 
           const resp = await fetch('/api/storage?action=auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ empId: loginEmpId, password: loginPassword, role: authRole }) });
+
+          if (!resp.ok) {
+            const text = await resp.text();
+            try {
+              const json = JSON.parse(text);
+              setAuthError(json.error || `Server error (${resp.status})`);
+            } catch (err) {
+              setAuthError(`Server error (${resp.status}): ${text.substring(0, 50)}...`);
+            }
+            return;
+          }
           const body = await resp.json();
-          if (!resp.ok) { setAuthError(body.error || 'Authentication failed.'); return; }
           const found = body.user;
           setUser(found);
           localStorage.setItem('current_session', JSON.stringify(found));
@@ -372,7 +394,8 @@ export default function App() {
           setAuthView('login');
         }
       } catch (e: any) {
-        setAuthError('Network error');
+        console.error('Auth error:', e);
+        setAuthError(`Connection failed: ${e.message || 'Unknown error'}`);
       }
     }, 600);
   };
@@ -433,7 +456,7 @@ export default function App() {
         setEntries(b.entries || []);
         setEditingId(null);
         if (user?.role === 'admin') fetchMasterData();
-      } catch (e) { pushToast('Failed to update entry', 'error'); }
+      } catch (e: any) { pushToast(`Failed to update entry: ${e.message}`, 'error'); }
     } else {
       const newEntry: TimeData = {
         id: crypto.randomUUID(),
@@ -450,7 +473,7 @@ export default function App() {
         if (!r.ok) throw new Error(b.error || 'Add failed');
         setEntries(b.entries || []);
         if (user?.role === 'admin') fetchMasterData();
-      } catch (e) { pushToast('Failed to add entry', 'error'); }
+      } catch (e: any) { pushToast(`Failed to add entry: ${e.message}`, 'error'); }
     }
     setFormData(INITIAL_FORM_STATE);
     setShowOTModal(false);
@@ -506,6 +529,26 @@ export default function App() {
     } catch (e) { pushToast('Failed to update status', 'error'); }
   };
 
+  const deleteAllEntries = async () => {
+    if (!user) return;
+    try {
+      const r = await fetch('/api/storage?action=deleteAllUserEntries', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id })
+      });
+      const b = await r.json();
+      if (!r.ok) throw new Error(b.error || 'Reset failed');
+
+      setEntries([]);
+      setFormData(INITIAL_FORM_STATE);
+      setShowResetConfirm2(false);
+      pushToast('All data has been reset successfully.', 'success');
+    } catch (e) {
+      pushToast('Failed to reset data', 'error');
+    }
+  };
+
   const startEdit = (entry: TimeData) => {
     setFormData({
       pause: entry.pause,
@@ -555,9 +598,21 @@ export default function App() {
       const matchesStatus = masterStatusFilter === 'All' ? true : d.status === masterStatusFilter;
       const matchesShift = masterShiftFilter === 'All' ? true : d.shiftType === masterShiftFilter;
 
-      return matchesSearch && matchesStatus && matchesShift;
+      let matchesDate = true;
+      if (masterDateStart) {
+        const start = new Date(masterDateStart);
+        start.setHours(0, 0, 0, 0);
+        matchesDate = matchesDate && new Date(d.date) >= start;
+      }
+      if (masterDateEnd) {
+        const end = new Date(masterDateEnd);
+        end.setHours(23, 59, 59, 999);
+        matchesDate = matchesDate && new Date(d.date) <= end;
+      }
+
+      return matchesSearch && matchesStatus && matchesShift && matchesDate;
     });
-  }, [masterData, masterSearchQuery]);
+  }, [masterData, masterSearchQuery, masterStatusFilter, masterShiftFilter, masterDateStart, masterDateEnd]);
 
   const otEntries = useMemo(() => {
     return masterData.filter(d => timeToSeconds(d.currentLogin) > (d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600) && (d.status === 'Approved'));
@@ -578,14 +633,46 @@ export default function App() {
   }, [user, allUsers]);
 
   const filteredDetailsEntries = useMemo(() => {
-    if (!detailsSearchQuery) return entries;
-    const q = detailsSearchQuery.toLowerCase();
-    return entries.filter(e =>
-      new Date(e.date).toLocaleDateString().includes(q) ||
-      e.shiftType.toLowerCase().includes(q) ||
-      e.currentLogin.includes(q)
-    );
-  }, [entries, detailsSearchQuery]);
+    let result = entries;
+
+    // 1. Text Search (Expanded)
+    if (detailsSearchQuery) {
+      const q = detailsSearchQuery.toLowerCase();
+      result = result.filter(e =>
+        new Date(e.date).toLocaleDateString().includes(q) ||
+        e.shiftType.toLowerCase().includes(q) ||
+        (e.currentLogin && e.currentLogin.includes(q)) ||
+        (e.reason && e.reason.toLowerCase().includes(q)) ||
+        (e.status && e.status.toLowerCase().includes(q)) ||
+        (e.talk && e.talk.includes(q)) ||
+        (e.pause && e.pause.includes(q))
+      );
+    }
+
+    // 2. Date Range Filter
+    if (detailsDateStart) {
+      const start = new Date(detailsDateStart);
+      start.setHours(0, 0, 0, 0);
+      result = result.filter(e => new Date(e.date) >= start);
+    }
+    if (detailsDateEnd) {
+      const end = new Date(detailsDateEnd);
+      end.setHours(23, 59, 59, 999);
+      result = result.filter(e => new Date(e.date) <= end);
+    }
+
+    // 3. Status Filter
+    if (detailsStatusFilter !== 'All') {
+      result = result.filter(e => e.status === detailsStatusFilter);
+    }
+
+    // 4. Shift Filter
+    if (detailsShiftFilter !== 'All') {
+      result = result.filter(e => e.shiftType === detailsShiftFilter);
+    }
+
+    return result;
+  }, [entries, detailsSearchQuery, detailsDateStart, detailsDateEnd, detailsStatusFilter, detailsShiftFilter]);
 
   const otLogEntries = useMemo(() => {
     return entries.filter(e => timeToSeconds(e.currentLogin) > (e.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600));
@@ -777,6 +864,40 @@ export default function App() {
         </div>
       )}
 
+      {/* Reset Data Confirmation Modal 1 */}
+      {showResetConfirm1 && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl p-10 space-y-6 animate-in zoom-in duration-300">
+            <div className="flex flex-col items-center text-center">
+              <div className="p-4 bg-rose-500/10 rounded-3xl text-rose-500 mb-6"><TrashIcon size={40} /></div>
+              <h3 className="text-xl font-black dark:text-white uppercase tracking-tight">Reset All Data?</h3>
+              <p className="text-sm text-slate-500 mt-2">Are you sure? This will <strong>permanently delete</strong> all your performance history and entries. Your account credentials will remain.</p>
+            </div>
+            <div className="space-y-3">
+              <button onClick={() => { setShowResetConfirm1(false); setShowResetConfirm2(true); }} className="w-full py-4 bg-rose-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl">Yes, Clean Everything</button>
+              <button onClick={() => setShowResetConfirm1(false)} className="w-full py-3 text-slate-400 font-bold text-[10px] uppercase tracking-widest">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Data Confirmation Modal 2 (Final Warning) */}
+      {showResetConfirm2 && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/80 backdrop-blur-sm p-6">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl p-10 space-y-6 animate-in zoom-in duration-300 border-2 border-rose-500">
+            <div className="flex flex-col items-center text-center">
+              <div className="p-4 bg-rose-500/10 rounded-3xl text-rose-500 mb-6"><ShieldAlertIcon size={40} /></div>
+              <h3 className="text-2xl font-black text-rose-500 uppercase tracking-tight">Final Warning</h3>
+              <p className="text-sm text-slate-500 mt-2">This action is <strong>IRREVERSIBLE</strong>. All your logged data will be lost forever. <br /><br />Confirm reset?</p>
+            </div>
+            <div className="space-y-3">
+              <button onClick={deleteAllEntries} className="w-full py-4 bg-rose-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl animate-pulse">CONFIRM PERMANENT RESET</button>
+              <button onClick={() => setShowResetConfirm2(false)} className="w-full py-3 text-slate-400 font-bold text-[10px] uppercase tracking-widest">Cancel, keep my data</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <aside className={`w-full md:w-60 flex flex-col p-5 shadow-2xl ${user.role === 'admin' ? 'bg-slate-950' : 'bg-slate-900'} text-white`}>
         <div className="flex items-center gap-3 mb-10 px-2">
           <ActivityIcon size={20} className={user.role === 'admin' ? 'text-amber-500' : 'text-indigo-500'} />
@@ -799,6 +920,9 @@ export default function App() {
         </nav>
         <div className="mt-auto pt-6 space-y-2">
           <button onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} className="w-full flex items-center gap-3 px-4 py-2 text-[10px] font-bold uppercase text-slate-500 hover:text-white">{theme === 'light' ? <MoonIcon size={14} /> : <SunIcon size={14} />} Theme</button>
+          {user.role === 'user' && (
+            <button onClick={() => setShowResetConfirm1(true)} className="w-full flex items-center gap-3 px-4 py-2 text-[10px] font-bold uppercase text-rose-500 hover:text-rose-400"><TrashIcon size={14} /> Reset Data</button>
+          )}
           <button onClick={logout} className="w-full flex items-center gap-3 px-4 py-2 text-[10px] font-bold uppercase text-rose-500 hover:text-rose-400"><LogOutIcon size={14} /> Logout</button>
         </div>
       </aside>
@@ -959,6 +1083,14 @@ export default function App() {
                 </div>
                 <div className="flex gap-3">
                   <button onClick={() => {
+                    let dataToExport = filteredDetailsEntries;
+                    if (selectedUsers.length > 0) {
+                      // filteredDetailsEntries already respects selection
+                    }
+                    exportDailyPerformanceReport(dataToExport);
+                  }} className="bg-emerald-600 px-6 py-3 text-white rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-600/20"><FileSpreadsheetIcon size={14} /> Download My Report</button>
+
+                  <button onClick={() => {
                     if (selectedUsers.length > 0) {
                       const selectedUserObjects = allUsers.filter(u => selectedUsers.includes(u.id));
                       exportToExcel(entries, selectedUserObjects[0]); // Use first user for filename, but export all entries
@@ -974,11 +1106,40 @@ export default function App() {
                   <SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={18} />
                   <input
                     type="text"
-                    placeholder="Search logs by date, shift or duration..."
+                    placeholder="Search logs by date, shift, reason, status..."
                     value={detailsSearchQuery}
                     onChange={(e) => setDetailsSearchQuery(e.target.value)}
                     className="w-full py-4 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none pl-14 pr-8 text-xs font-bold border border-transparent focus:border-indigo-500/20 dark:text-white transition-all shadow-inner"
                   />
+                </div>
+
+                <div className="flex flex-col md:flex-row gap-4">
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">From Date</label>
+                    <input type="date" value={detailsDateStart} onChange={(e) => setDetailsDateStart(e.target.value)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner" />
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">To Date</label>
+                    <input type="date" value={detailsDateEnd} onChange={(e) => setDetailsDateEnd(e.target.value)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner" />
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Status</label>
+                    <select value={detailsStatusFilter} onChange={(e) => setDetailsStatusFilter(e.target.value as any)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner appearance-none cursor-pointer">
+                      <option value="All">All Statuses</option>
+                      <option value="Approved">Approved</option>
+                      <option value="Pending">Pending</option>
+                      <option value="Rejected">Rejected</option>
+                      <option value="N/A">N/A</option>
+                    </select>
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Shift</label>
+                    <select value={detailsShiftFilter} onChange={(e) => setDetailsShiftFilter(e.target.value as any)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner appearance-none cursor-pointer">
+                      <option value="All">All Shifts</option>
+                      <option value="Full Day">Full Day</option>
+                      <option value="Half Day">Half Day</option>
+                    </select>
+                  </div>
                 </div>
 
                 <div className="overflow-x-auto rounded-[2rem] border dark:border-slate-800/50">
@@ -1240,7 +1401,10 @@ export default function App() {
             <div className="animate-in fade-in duration-700 space-y-8">
               <div className="flex justify-between items-center">
                 <div><h2 className="text-xl font-black uppercase dark:text-white">Master Property Stream</h2><p className="text-[10px] text-slate-400 font-bold mt-1">Enterprise audit of all extracted session properties (Excel Pattern)</p></div>
-                <button onClick={() => exportConsolidatedExcel(masterDataServer)} className="bg-emerald-600 px-8 py-4 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-emerald-700 transition-all shadow-emerald-600/20"><FileSpreadsheetIcon size={16} className="mr-2 inline" /> Generate Team Report</button>
+                <div className="flex gap-2">
+                  <button onClick={() => exportDailyPerformanceReport(filteredMasterData)} className="bg-indigo-600 px-6 py-4 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-indigo-700 transition-all shadow-indigo-600/20"><FileSpreadsheetIcon size={16} className="mr-2 inline" /> Download Daily Report</button>
+                  <button onClick={() => exportConsolidatedExcel(masterDataServer)} className="bg-emerald-600 px-6 py-4 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-emerald-700 transition-all shadow-emerald-600/20"><FileSpreadsheetIcon size={16} className="mr-2 inline" /> Generate Team Report</button>
+                </div>
               </div>
 
               <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border dark:border-slate-800 shadow-sm space-y-6">
@@ -1249,8 +1413,17 @@ export default function App() {
                     <SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={18} />
                     <input type="text" placeholder="Global master filter: Agent name, ID, or Session date..." value={masterSearchQuery} onChange={(e) => setMasterSearchQuery(e.target.value)} className="w-full py-5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none pl-14 pr-8 text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner" />
                   </div>
-                  <div className="flex-1">
-                    <select value={masterStatusFilter} onChange={(e) => setMasterStatusFilter(e.target.value as any)} className="w-full py-5 px-6 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner appearance-none cursor-pointer">
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">From</label>
+                    <input type="date" value={masterDateStart} onChange={(e) => setMasterDateStart(e.target.value)} className="w-full p-3.5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold dark:text-white shadow-inner" />
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">To</label>
+                    <input type="date" value={masterDateEnd} onChange={(e) => setMasterDateEnd(e.target.value)} className="w-full p-3.5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold dark:text-white shadow-inner" />
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Status</label>
+                    <select value={masterStatusFilter} onChange={(e) => setMasterStatusFilter(e.target.value as any)} className="w-full py-4 px-6 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner appearance-none cursor-pointer">
                       <option value="All">All Statuses</option>
                       <option value="Approved">Approved</option>
                       <option value="Pending">Pending</option>
@@ -1258,8 +1431,9 @@ export default function App() {
                       <option value="N/A">N/A</option>
                     </select>
                   </div>
-                  <div className="flex-1">
-                    <select value={masterShiftFilter} onChange={(e) => setMasterShiftFilter(e.target.value as any)} className="w-full py-5 px-6 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner appearance-none cursor-pointer">
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Shift</label>
+                    <select value={masterShiftFilter} onChange={(e) => setMasterShiftFilter(e.target.value as any)} className="w-full py-4 px-6 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner appearance-none cursor-pointer">
                       <option value="All">All Shifts</option>
                       <option value="Full Day">Full Day</option>
                       <option value="Half Day">Half Day</option>

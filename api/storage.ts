@@ -7,36 +7,60 @@ if (!process.env.DATABASE_URL && !process.env.NEON_DATABASE_URL) {
   console.warn('Warning: DATABASE_URL or NEON_DATABASE_URL not set. Using fallback connection string. Set DATABASE_URL in Vercel environment variables for production.');
 }
 
-// reuse pool in serverless environments
-if (!(global as any).__pgPool) {
-  (global as any).__pgPool = new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
-}
-const pool: Pool = (global as any).__pgPool;
+// Lazy pool initialization
+let pool: Pool | undefined;
 
-async function ensureSchema() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS users (
-      id text PRIMARY KEY,
-      emp_id text UNIQUE NOT NULL,
-      name text,
-      password text,
-      role text
-    );
-    CREATE TABLE IF NOT EXISTS entries (
-      id text PRIMARY KEY,
-      user_id text REFERENCES users(id) ON DELETE CASCADE,
-      date timestamptz,
-      payload jsonb,
-      status text
-    );
-    CREATE TABLE IF NOT EXISTS migrations (
-      id text PRIMARY KEY,
-      created_at timestamptz DEFAULT now(),
-      migrated_users integer,
-      migrated_entries integer,
-      mapping jsonb
-    );
-  `);
+function getPool() {
+  if (pool) return pool;
+  if ((global as any).__pgPool) {
+    pool = (global as any).__pgPool;
+    return pool!;
+  }
+
+  // Fallback if env var is missing - this logic was top-level and could crash
+  const connectionString = process.env.DATABASE_URL || process.env.NEON_DATABASE_URL || 'postgresql://neondb_owner:npg_SElb3moQHZa7@ep-small-queen-aiojdtw6-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
+
+  try {
+    pool = new Pool({ connectionString, ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 5000 });
+    (global as any).__pgPool = pool;
+    return pool!;
+  } catch (e) {
+    console.error('Failed to initialize pool', e);
+    throw e;
+  }
+}
+
+async function ensureSchema(pool: Pool) {
+  if ((global as any).__schemaChecked) return;
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id text PRIMARY KEY,
+        emp_id text UNIQUE NOT NULL,
+        name text,
+        password text,
+        role text
+      );
+      CREATE TABLE IF NOT EXISTS entries (
+        id text PRIMARY KEY,
+        user_id text REFERENCES users(id) ON DELETE CASCADE,
+        date timestamptz,
+        payload jsonb,
+        status text
+      );
+      CREATE TABLE IF NOT EXISTS migrations (
+        id text PRIMARY KEY,
+        created_at timestamptz DEFAULT now(),
+        migrated_users integer,
+        migrated_entries integer,
+        mapping jsonb
+      );
+    `);
+    (global as any).__schemaChecked = true;
+  } catch (e) {
+    console.error('Schema creation failed', e);
+    throw e;
+  }
 }
 
 function logBadRequest(res: any, message: string, ctx?: any) {
@@ -56,9 +80,15 @@ export default async function handler(req: any, res: any) {
   const q = req.query || {};
   const action = q.action || (req.body && req.body.action);
 
-  try { console.info('API Request', { action, method, query: q, bodyKeys: Object.keys(req.body || {}) }); } catch (e) { }
+  try {
+    const db = getPool(); // Init DB here
+    await ensureSchema(db); // Pass db instance
+  } catch (e: any) {
+    console.error('DB Init/Schema Failed:', e);
+    return res.status(500).json({ error: 'Database connection failed', details: e.message });
+  }
 
-  await ensureSchema();
+  const pool = getPool(); // Usage for rest of function
 
   if (action === 'getUsers' && method === 'GET') {
     const r = await pool.query('SELECT id, emp_id, name, role, password FROM users ORDER BY name');
@@ -138,6 +168,13 @@ export default async function handler(req: any, res: any) {
     const r = await pool.query('SELECT id, payload, status, date FROM entries WHERE user_id = $1 ORDER BY date DESC', [userId]);
     const entries = r.rows.map((row: any) => ({ id: row.id, date: row.date, ...row.payload, status: row.status }));
     return res.status(200).json({ entries });
+  }
+
+  if (action === 'deleteAllUserEntries' && method === 'DELETE') {
+    const { userId } = req.body || {};
+    if (!userId) return logBadRequest(res, 'userId required', { action, body: req.body });
+    await pool.query('DELETE FROM entries WHERE user_id = $1', [userId]);
+    return res.status(200).json({ entries: [] });
   }
 
   if (action === 'deleteUser' && method === 'DELETE') {
