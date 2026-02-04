@@ -1,4 +1,60 @@
-import { GoogleGenAI, Type } from "@google/genai";
+function extractData(text: string) {
+  const result: any = {
+    pause: '00:00:00',
+    dispo: '00:00:00',
+    dead: '00:00:00',
+    currentLogin: '00:00:00',
+    loginTimestamp: '00:00:00',
+    logoutTimestamp: '00:00:00',
+    loginAt: '00:00:00',
+    logoutAt: '00:00:00',
+    wait: '00:00:00',
+    talk: '00:00:00',
+    hold: '00:00:00',
+    customerTalk: '00:00:00',
+    inbound: 0,
+    outbound: 0
+  };
+
+  // Helper to extract time in HH:MM:SS format, handling squashed text
+  const extractTime = (pattern: RegExp): string => {
+    const match = text.match(pattern);
+    if (match) {
+      let time = match[1];
+      // Clean up squashed text, e.g., "Time3:22:08" -> "3:22:08"
+      time = time.replace(/^[^\d]*(\d)/, '$1');
+      const parts = time.split(':');
+      if (parts.length === 3) {
+        return parts.map(p => p.padStart(2, '0')).join(':');
+      }
+    }
+    return '00:00:00';
+  };
+
+  // Helper to extract integer count
+  const extractCount = (pattern: RegExp): number => {
+    const match = text.match(pattern);
+    return match ? parseInt(match[1], 10) || 0 : 0;
+  };
+
+  // Define patterns for each field (more flexible to match variations)
+  result.pause = extractTime(/(?:Total\s+)?Pause(?:\s+Time)?[:\s]*(\d{1,2}:\d{2}:\d{2})/i);
+  result.dispo = extractTime(/(?:Total\s+)?Dispo(?:\s+Time)?[:\s]*(\d{1,2}:\d{2}:\d{2})/i);
+  result.dead = extractTime(/(?:Total\s+)?Dead(?:\s+Time)?[:\s]*(\d{1,2}:\d{2}:\d{2})/i);
+  result.currentLogin = extractTime(/(?:Total\s+)?Login(?:\s+Time)?[:\s]*(\d{1,2}:\d{2}:\d{2})/i);
+  result.loginTimestamp = extractTime(/(?:Login\s+At|Session\s+Start)[:\s]*(\d{1,2}:\d{2}:\d{2})/i);
+  result.logoutTimestamp = extractTime(/(?:Logout\s+At|Session\s+End)[:\s]*(\d{1,2}:\d{2}:\d{2})/i);
+  result.loginAt = extractTime(/Login\s+At[:\s]*(\d{1,2}:\d{2}:\d{2})/i);
+  result.logoutAt = extractTime(/Logout[:\s]*(\d{1,2}:\d{2}:\d{2})/i);
+  result.wait = extractTime(/(?:Total\s+)?Wait(?:\s+Time)?[:\s]*(\d{1,2}:\d{2}:\d{2})/i);
+  result.talk = extractTime(/(?:Total\s+)?Talk(?:\s+Time)?[:\s]*(\d{1,2}:\d{2}:\d{2})/i);
+  result.hold = extractTime(/(?:Total\s+)?Hold(?:\s+Time)?[:\s]*(\d{1,2}:\d{2}:\d{2})/i);
+  result.customerTalk = extractTime(/Customer(?:\s+)?Talk(?:\s+Time)?[:\s]*(\d{1,2}:\d{2}:\d{2})/i);
+  result.inbound = extractCount(/Inbound\s+Calls?[:\s]*(\d+)/i);
+  result.outbound = extractCount(/Outbound\s+Calls?[:\s]*(\d+)/i);
+
+  return result;
+}
 
 export default async function handler(req: any, res: any) {
   console.log('parse handler invoked', { method: req.method, headers: req.headers && Object.keys(req.headers).length });
@@ -24,135 +80,12 @@ export default async function handler(req: any, res: any) {
 
   if (!text || !text.trim()) return res.status(400).json({ error: 'Missing `text` in request body' });
 
-  // Accept either server-side GENAI_API_KEY, legacy API_KEY, or a Vite-provided VITE_GEMINI_API_KEY
-  // Prioritize VITE_GEMINI_API_KEY as explicitly requested by user
-  const apiKey = process.env.VITE_GEMINI_API_KEY || process.env.GENAI_API_KEY || process.env.API_KEY;
-  if (!apiKey) return res.status(500).json({ error: 'Server misconfiguration: missing GENAI_API_KEY (or VITE_GEMINI_API_KEY)' });
-
-  const ai = new GoogleGenAI({ apiKey });
-
   try {
-    console.log('Invoking GenAI - starting request');
-    const timeoutMs = 55_000; // preemptive timeout a bit under function max duration
-    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-    let result = null;
-    let retries = 0;
-    const maxRetries = 3;
-
-    while (retries <= maxRetries) {
-      try {
-        const genaiPromise = ai.models.generateContent({
-          model: 'gemini-flash-latest',
-          contents: `You are a specialized data extractor for dialer performance reports. 
-            Look at the provided text and extract these 12 specific values. 
-            Note that labels and values might be squashed together.
-            
-            FIELDS TO EXTRACT:
-            1. pause: (HH:MM:SS) - Often labeled "Total Pause Time"
-            2. dispo: (HH:MM:SS) - Often labeled "Total Dispo Time"
-            3. dead: (HH:MM:SS) - Often labeled "Total Dead Time"
-            4. currentLogin: (HH:MM:SS) - Often labeled "Total Login Time" (Duration)
-            5. loginTimestamp: (HH:MM:SS) - Often labeled "Login At" or "Session Start"
-            6. logoutTimestamp: (HH:MM:SS) - Often labeled "Logout At" or "Session End"
-            7. wait: (HH:MM:SS) - Often labeled "Total Wait Time"
-            8. talk: (HH:MM:SS) - Often labeled "Total Talk Time"
-            9. hold: (HH:MM:SS) - Often labeled "Total Hold Time"
-            10. customerTalk: (HH:MM:SS) - Often labeled "Customer Talk Time"
-            11. inbound: (Integer) - Look for "Inbound Calls" count
-            12. outbound: (Integer) - Look for "Outbound Calls" count
-
-            RULES:
-            - If a time value is missing, return "00:00:00".
-            - If a call count is missing, return 0.
-            - Clean up any squashed text (e.g., "Time3:22:08" -> "03:22:08").
-            
-            TEXT TO PARSE:
-            """
-            ${text}
-            """`,
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                pause: { type: Type.STRING },
-                dispo: { type: Type.STRING },
-                dead: { type: Type.STRING },
-                currentLogin: { type: Type.STRING },
-                loginTimestamp: { type: Type.STRING },
-                logoutTimestamp: { type: Type.STRING },
-                wait: { type: Type.STRING },
-                talk: { type: Type.STRING },
-                hold: { type: Type.STRING },
-                customerTalk: { type: Type.STRING },
-                inbound: { type: Type.INTEGER },
-                outbound: { type: Type.INTEGER },
-              },
-              required: ["pause", "dispo", "dead", "currentLogin", "loginTimestamp", "logoutTimestamp", "wait", "talk", "hold", "customerTalk", "inbound", "outbound"]
-            }
-          }
-        });
-
-        const response = await Promise.race([
-          genaiPromise,
-          new Promise((_, reject) => setTimeout(() => reject(new Error('genai_timeout')), timeoutMs))
-        ]);
-
-        const responseText = (response as any).text;
-        if (!responseText) throw new Error('Empty AI response');
-
-        const rawResult = JSON.parse(responseText.trim());
-
-        const sanitize = (val: any) => {
-          if (typeof val !== 'string') return '00:00:00';
-          const parts = val.split(':');
-          if (parts.length >= 2) {
-            return parts.map((p: string) => p.padStart(2, '0')).join(':').substring(0, 8);
-          }
-          return '00:00:00';
-        };
-
-        result = {
-          ...rawResult,
-          pause: sanitize(rawResult.pause),
-          dispo: sanitize(rawResult.dispo),
-          dead: sanitize(rawResult.dead),
-          currentLogin: sanitize(rawResult.currentLogin),
-          loginTimestamp: sanitize(rawResult.loginTimestamp),
-          logoutTimestamp: sanitize(rawResult.logoutTimestamp),
-          wait: sanitize(rawResult.wait),
-          talk: sanitize(rawResult.talk),
-          hold: sanitize(rawResult.hold),
-          customerTalk: sanitize(rawResult.customerTalk),
-          inbound: rawResult.inbound || 0,
-          outbound: rawResult.outbound || 0
-        };
-        break; // Success
-      } catch (err: any) {
-        // Detect 429
-        if (err?.status === 429 || err?.message?.includes('429') || err?.message?.includes('quota')) {
-          console.warn(`Gemini 429 hit. Retry ${retries + 1}/${maxRetries}`);
-          retries++;
-          if (retries > maxRetries) throw err;
-          // Progressive backoff: 2s, 5s, 10s
-          // If the error suggests a time, we'd ideally parse it, but simple backoff helps transient spikes
-          await sleep(2000 * Math.pow(2, retries));
-        } else {
-          throw err;
-        }
-      }
-    }
-
+    console.log('Extracting data using regex - starting');
+    const result = extractData(text);
     return res.status(200).json(result);
   } catch (e: any) {
-    console.error('Gemini server error:', e);
-    if (e && e.message === 'genai_timeout') {
-      console.error('GenAI request timed out after timeoutMs');
-      return res.status(504).json({ error: 'GenAI request timed out' });
-    }
-    const status = e?.status || 500;
-    const body = e?.response || e?.message || 'Unknown server error';
-    return res.status(status === 400 || status === 401 || status === 403 ? status : 500).json({ error: body });
+    console.error('Extraction error:', e);
+    return res.status(500).json({ error: e?.message || 'Unknown extraction error' });
   }
 }

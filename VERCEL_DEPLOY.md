@@ -3,7 +3,7 @@ Deployment notes for Vercel
 Quick steps ✅
 
 1. Set environment variable in your Vercel project settings:
-   - Name: GENAI_API_KEY
+   - Name: GEMINI_API_KEY
    - Value: <your Google Generative Language API key>
    - Add to Production and Preview as needed
 
@@ -16,7 +16,7 @@ Quick steps ✅
 Local testing 🧪
 
 - Locally you can set the environment variable and run the dev server:
-  - On Windows PowerShell: $Env:GENAI_API_KEY = "your_key_here"; npm run dev
+  - On Windows PowerShell: $Env:GEMINI_API_KEY = "your_key_here"; npm run dev
 - **Important:** Standard `npm run dev` will NOT serve the API functions. You must use Vercel CLI.
 
 - You can also run Vercel locally to emulate the serverless function:
