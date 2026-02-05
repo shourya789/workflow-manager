@@ -3,7 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "engines": { "node": "24.x" },
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -11,14 +13,23 @@
     "vercel:deploy": "vercel --prod"
   },
   "dependencies": {
+    "@google/genai": "^1.35.0",
+    "@libsql/client": "^0.14.0",
+    "archiver": "^5.3.1",
+    "lucide-react": "^0.562.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "recharts": "^3.6.0",
+<<<<<<< HEAD
     "lucide-react": "^0.562.0",
     "@google/genai": "^1.35.0",
     "xlsx": "^0.18.5",
     "pg": "^8.11.0",
     "archiver": "^5.3.1"
+=======
+    "xlsx": "^0.18.5",
+    "xlsx-js-style": "^1.2.0"
+>>>>>>> b70d3ef89309495cf41bf8e5b5651d5865dd9712
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
