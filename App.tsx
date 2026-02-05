@@ -92,7 +92,7 @@ export default function App() {
   const [isParsing, setIsParsing] = useState(false);
   const [rawText, setRawText] = useState('');
   const [parseFailures, setParseFailures] = useState(0);
-  const [activeTab, setActiveTab] = useState<'calc' | 'details' | 'admin' | 'all-logs' | 'ot-log' | 'ot-admin' | 'users'>('calc');
+  const [activeTab, setActiveTab] = useState<'calc' | 'details' | 'admin' | 'all-logs' | 'ot-log' | 'ot-admin' | 'migrations'>('calc');
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [shiftType, setShiftType] = useState<ShiftType>('Full Day');
   const [showOTModal, setShowOTModal] = useState(false);
@@ -102,6 +102,144 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [detailsSearchQuery, setDetailsSearchQuery] = useState('');
   const [masterSearchQuery, setMasterSearchQuery] = useState('');
+  const [showPasswords, setShowPasswords] = useState(false);
+  const [masterDataServer, setMasterDataServer] = useState<TimeData[]>([]);
+  const [migrations, setMigrations] = useState<any[]>([]);
+  const [expandedMigrationId, setExpandedMigrationId] = useState<string | null>(null);
+  const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
+  const [otSearchQuery, setOtSearchQuery] = useState('');
+  const [otDateSearch, setOtDateSearch] = useState('');
+  const [isMultiView, setIsMultiView] = useState(false);
+
+  const fetchMasterData = async () => {
+    try {
+      const r = await fetch('/api/storage?action=getAllEntries');
+      const d = await r.json();
+      setMasterDataServer(d.entries || []);
+    } catch (e) {
+      console.error('Failed to fetch master data', e);
+    }
+  };
+
+  const fetchMigrations = async () => {
+    try {
+      const r = await fetch('/api/storage?action=getMigrations');
+      const d = await r.json();
+      setMigrations(d.migrations || []);
+    } catch (e) {
+      console.error('Failed to fetch migrations', e);
+    }
+  };
+
+  const downloadMigrationMapping = async (mapping: any, id: string, format: 'json' | 'csv' | 'zip' = 'json') => {
+    try {
+      if (!confirm(`Download mapping for migration ${id} as ${format.toUpperCase()}?`)) return;
+      pushToast('Preparing download...', 'info');
+      if (format === 'json') {
+        const resp = await fetch(`/api/storage?action=exportMigration&id=${encodeURIComponent(id)}`);
+        if (!resp.ok) {
+          const body = await resp.json().catch(() => ({}));
+          pushToast(`Server export failed: ${body.error || 'Unknown'}`, 'error');
+          // fallback to client-side download
+          const blob = new Blob([JSON.stringify(mapping || {}, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `migration_${id}_mapping.json`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+          pushToast('Downloaded fallback mapping', 'warning');
+          return;
+        }
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `migration_${id}_mapping.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        pushToast('Migration mapping downloaded', 'success');
+        return;
+      }
+
+      const resp = await fetch(`/api/storage?action=exportMigrationFlat&id=${encodeURIComponent(id)}&format=${format}`);
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        pushToast(`Server export failed: ${body.error || 'Unknown'}`, 'error');
+        return;
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `migration_${id}_mapping.${format === 'zip' ? 'zip' : 'csv'}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      pushToast(`Migration mapping ${format.toUpperCase()} downloaded`, 'success');
+    } catch (e) {
+      console.error('Download failed', e);
+      pushToast('Download failed', 'error');
+    }
+  }; 
+
+  const [isMigrating, setIsMigrating] = useState(false);
+  const [showMigrationModal, setShowMigrationModal] = useState(false);
+  const [migrationIncludeEntries, setMigrationIncludeEntries] = useState(true);
+
+  // Toast system
+  const [toasts, setToasts] = useState<Array<{id: string; message: string; type: 'success' | 'error' | 'info' | 'warning'}>>([]);
+  const pushToast = (message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info', duration = 4000) => {
+    const id = (globalThis as any).crypto?.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2);
+    setToasts(t => [{ id, message, type }, ...t]);
+    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), duration);
+  };
+
+  const runMigrationNow = async (includeEntries = true) => {
+    if (isMigrating) return;
+    // close modal when starting
+    setShowMigrationModal(false);
+    setIsMigrating(true);
+    try {
+      const localUsers = JSON.parse(localStorage.getItem('registered_users') || '[]');
+      let entriesObj: Record<string, any[]> = {};
+      if (includeEntries) {
+        for (const lu of localUsers) {
+          const localEntries = JSON.parse(localStorage.getItem(`entries_${lu.id}`) || '[]');
+          if (localEntries && localEntries.length) entriesObj[lu.id] = localEntries;
+        }
+      }
+
+      if (!localUsers.length && Object.keys(entriesObj).length === 0) {
+        pushToast('No local data found to migrate', 'info');
+        setIsMigrating(false);
+        return;
+      }
+
+      const resp = await fetch('/api/storage?action=migrateLocal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ users: localUsers, entries: entriesObj }) });
+      const body = await resp.json();
+      if (!resp.ok) {
+        pushToast(`Migration failed: ${body.error || body.detail || 'server error'}`, 'error');
+        setIsMigrating(false);
+        return;
+      }
+
+      localStorage.setItem('migrated_to_db', new Date().toISOString());
+      fetchMigrations();
+      fetchMasterData();
+      pushToast(`Migration completed: ${body.migratedUsers || 0} users, ${body.migratedEntries || 0} entries (id: ${body.migrationId || 'n/a'})`, 'success');
+    } catch (err) {
+      console.error('Manual migration failed', err);
+      pushToast('Migration failed, check console', 'error');
+    } finally {
+      setIsMigrating(false);
+    }
+  }; 
 
   const viewingUser = useMemo(() => {
     if (!user) return null;
@@ -117,8 +255,50 @@ export default function App() {
     }
     const savedTheme = localStorage.getItem('theme') as 'light' | 'dark';
     if (savedTheme) setTheme(savedTheme || 'light');
-    const registered = JSON.parse(localStorage.getItem('registered_users') || '[]');
-    setAllUsers(registered);
+
+    // fetch registered users from server
+    fetch('/api/storage?action=getUsers')
+      .then(r => r.json())
+      .then(d => {
+        setAllUsers(d.users || []);
+
+        // Silent one-time migration from localStorage to the central DB (no UI changes)
+        try {
+          if (!localStorage.getItem('migrated_to_db')) {
+            const localUsers = JSON.parse(localStorage.getItem('registered_users') || '[]');
+            const entriesObj: Record<string, any[]> = {};
+            for (const lu of localUsers) {
+              const localEntries = JSON.parse(localStorage.getItem(`entries_${lu.id}`) || '[]');
+              if (localEntries && localEntries.length) entriesObj[lu.id] = localEntries;
+            }
+
+            if (localUsers.length || Object.keys(entriesObj).length) {
+              fetch('/api/storage?action=migrateLocal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ users: localUsers, entries: entriesObj }) })
+                        .then(res => res.json())
+                .then(resBody => {
+                  console.log('Local migration result', resBody);
+                  // Mark migration complete to avoid repeating
+                  localStorage.setItem('migrated_to_db', new Date().toISOString());
+                  // refresh server-side reports so admins can see the migration
+                  fetchMigrations();
+                  // show a non-intrusive notification of background migration
+                  pushToast(`Background migration completed: ${resBody.migratedUsers || 0} users, ${resBody.migratedEntries || 0} entries`, 'success');
+                })
+                .catch(err => {
+                  console.error('Local migration failed', err);
+                  pushToast('Background migration failed (see console)', 'error');
+                  // Do not set migrated flag so we can retry later
+                });
+            } else {
+              // Nothing to migrate, mark as done
+              localStorage.setItem('migrated_to_db', new Date().toISOString());
+            }
+          }
+        } catch (e) {
+          console.error('Migration check failed', e);
+        }
+      })
+      .catch(e => console.error('Failed to fetch users', e));
   }, []);
 
   useEffect(() => {
@@ -129,8 +309,12 @@ export default function App() {
   useEffect(() => {
     if (user) {
       const idToFetch = adminViewingUserId || user.id;
-      const savedEntries = localStorage.getItem(`entries_${idToFetch}`);
-      setEntries(savedEntries ? JSON.parse(savedEntries) : []);
+      fetch(`/api/storage?action=getEntries&userId=${encodeURIComponent(idToFetch)}`)
+        .then(r => r.json())
+        .then(d => setEntries(d.entries || []))
+        .catch(e => { console.error('Failed to fetch entries', e); setEntries([]); });
+    } else {
+      setEntries([]);
     }
   }, [user, adminViewingUserId]);
 
@@ -142,25 +326,28 @@ export default function App() {
     const password = (data.get('password') as string || '');
     const name = (data.get('name') as string || '').trim();
 
-    setTimeout(() => {
-      const users: User[] = JSON.parse(localStorage.getItem('registered_users') || '[]');
-      
-      if (authView === 'login') {
-        const found = users.find(u => u.empId.toLowerCase() === empId && u.password === password && u.role === authRole);
-        if (found) {
+    setTimeout(async () => {
+      try {
+        if (authView === 'login') {
+          const resp = await fetch('/api/storage?action=auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ empId, password, role: authRole }) });
+          const body = await resp.json();
+          if (!resp.ok) { setAuthError(body.error || 'Authentication failed.'); return; }
+          const found = body.user;
           setUser(found);
           localStorage.setItem('current_session', JSON.stringify(found));
-          if (found.role === 'admin') setActiveTab('admin');
+          if (found.role === 'admin') { setActiveTab('admin'); fetchMasterData(); }
           else setActiveTab('calc');
-        } else { 
-          setAuthError(`Authentication failed. Check credentials and role.`); 
+        } else {
+          if (authRole === 'admin') { pushToast('Admin registration disabled. Default admin: TEAM / Pooja852', 'info'); setAuthView('login'); return; }
+          const resp = await fetch('/api/storage?action=register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ empId, name, password, role: authRole }) });
+          const body = await resp.json();
+          if (!resp.ok) { setAuthError(body.error || 'Registration failed'); return; }
+          const newUser = body.user;
+          setAllUsers(prev => [...prev, newUser]);
+          setAuthView('login');
         }
-      } else {
-        const newUser: User = { id: crypto.randomUUID(), empId, name, email: '', password, role: authRole };
-        const updatedUsers = [...users, newUser];
-        localStorage.setItem('registered_users', JSON.stringify(updatedUsers));
-        setAllUsers(updatedUsers);
-        setAuthView('login');
+      } catch (e: any) {
+        setAuthError('Network error');
       }
     }, 600);
   };
@@ -173,24 +360,80 @@ export default function App() {
     setAuthView('login');
   };
 
+  const parseDialerText = (text: string) => {
+    const result: any = {
+      pause: '00:00:00',
+      dispo: '00:00:00',
+      dead: '00:00:00',
+      currentLogin: '00:00:00',
+      loginTimestamp: '00:00:00',
+      logoutTimestamp: '00:00:00',
+      wait: '00:00:00',
+      talk: '00:00:00',
+      hold: '00:00:00',
+      customerTalk: '00:00:00',
+      inbound: 0,
+      outbound: 0
+    };
+
+    // Helper to extract time from text
+    const extractTime = (pattern: RegExp): string => {
+      const match = text.match(pattern);
+      if (match && match[1]) {
+        const time = match[1].trim();
+        // Clean up squashed text like "Time3:22:08" -> "03:22:08"
+        const cleanTime = time.replace(/([a-zA-Z])(\d)/g, '$1 $2').replace(/(\d)([a-zA-Z])/g, '$1 $2');
+        const parts = cleanTime.split(/[:\s]+/).filter(p => /^\d+$/.test(p));
+        if (parts.length >= 2) {
+          return parts.slice(-3).map(p => p.padStart(2, '0')).join(':');
+        }
+      }
+      return '00:00:00';
+    };
+
+    // Helper to extract number
+    const extractNumber = (pattern: RegExp): number => {
+      const match = text.match(pattern);
+      return match && match[1] ? parseInt(match[1].trim()) || 0 : 0;
+    };
+
+    // Extract times
+    result.pause = extractTime(/(?:Total\s+)?Pause\s+Time[:\s]*([0-9:]+(?:\s*[a-zA-Z]*\s*[0-9:]*)*)/i);
+    result.dispo = extractTime(/(?:Total\s+)?Dispo\s+Time[:\s]*([0-9:]+(?:\s*[a-zA-Z]*\s*[0-9:]*)*)/i);
+    result.dead = extractTime(/(?:Total\s+)?Dead\s+Time[:\s]*([0-9:]+(?:\s*[a-zA-Z]*\s*[0-9:]*)*)/i);
+    result.currentLogin = extractTime(/(?:Total\s+)?Login\s+Time[:\s]*([0-9:]+(?:\s*[a-zA-Z]*\s*[0-9:]*)*)/i);
+    result.loginTimestamp = extractTime(/(?:Login\s+At|Session\s+Start)[:\s]*([0-9:]+(?:\s*[a-zA-Z]*\s*[0-9:]*)*)/i);
+    result.logoutTimestamp = extractTime(/(?:Logout\s+At|Session\s+End)[:\s]*([0-9:]+(?:\s*[a-zA-Z]*\s*[0-9:]*)*)/i);
+    result.wait = extractTime(/(?:Total\s+)?Wait\s+Time[:\s]*([0-9:]+(?:\s*[a-zA-Z]*\s*[0-9:]*)*)/i);
+    result.talk = extractTime(/(?:Total\s+)?Talk\s+Time[:\s]*([0-9:]+(?:\s*[a-zA-Z]*\s*[0-9:]*)*)/i);
+    result.hold = extractTime(/(?:Total\s+)?Hold\s+Time[:\s]*([0-9:]+(?:\s*[a-zA-Z]*\s*[0-9:]*)*)/i);
+    result.customerTalk = extractTime(/Customer\s+Talk\s+Time[:\s]*([0-9:]+(?:\s*[a-zA-Z]*\s*[0-9:]*)*)/i);
+
+    // Extract counts
+    result.inbound = extractNumber(/(?:Inbound\s+)?Calls?[:\s]*(\d+)/i);
+    result.outbound = extractNumber(/(?:Outbound\s+)?Calls?[:\s]*(\d+)/i);
+
+    return result;
+  };
+
   const handleAIParsing = async () => {
     if (!rawText || !rawText.trim()) return;
     setIsParsing(true);
     try {
-      const parsed = await parseRawTimeData(rawText);
-      if (parsed) { 
-        setFormData(prev => ({ 
-          ...prev, 
+      const parsed = parseDialerText(rawText);
+      if (parsed) {
+        setFormData(prev => ({
+          ...prev,
           ...parsed,
           loginTimestamp: parsed.loginTimestamp || prev.loginTimestamp,
           logoutTimestamp: parsed.logoutTimestamp || prev.logoutTimestamp
-        })); 
-        setRawText(''); 
+        }));
+        setRawText('');
       }
-    } catch (e: any) { 
+    } catch (e: any) {
       console.error(e);
       setParseFailures(prev => prev + 1);
-      alert(`AI extraction failed: ${e?.message || 'Check server logs and ensure GENAI_API_KEY is set on Vercel'}`);
+      pushToast(`Extraction failed: ${e?.message || 'Invalid text format'}`, 'error');
     } finally { setIsParsing(false); }
   };
 
@@ -206,16 +449,22 @@ export default function App() {
   const loginExceeded = loginSec > shiftBase;
   const breakExceeded = totalBreakSec > breakLimit;
 
-  const commitRecord = (applyForOT?: boolean) => {
+  const commitRecord = async (applyForOT?: boolean) => {
     if (!user) return;
     const targetUserId = adminViewingUserId || user.id;
     const calculatedStatus: EntryStatus = (applyForOT) ? 'Pending' : 'N/A';
 
     if (editingId) {
-      const updatedEntries = entries.map(e => e.id === editingId ? { ...e, ...formData, shiftType, status: calculatedStatus } : e);
-      localStorage.setItem(`entries_${targetUserId}`, JSON.stringify(updatedEntries));
-      setEntries(updatedEntries);
-      setEditingId(null);
+      // update on server
+      const payload = { userId: targetUserId, entryId: editingId, entry: { ...formData, shiftType, status: calculatedStatus } };
+      try {
+        const r = await fetch('/api/storage?action=updateEntry', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const b = await r.json();
+        if (!r.ok) throw new Error(b.error || 'Update failed');
+        setEntries(b.entries || []);
+        setEditingId(null);
+        if (user?.role === 'admin') fetchMasterData();
+      } catch (e) { pushToast('Failed to update entry', 'error'); }
     } else {
       const newEntry: TimeData = { 
         id: crypto.randomUUID(), 
@@ -226,10 +475,13 @@ export default function App() {
         ...formData,
         status: calculatedStatus
       };
-      const currentEntries = JSON.parse(localStorage.getItem(`entries_${targetUserId}`) || '[]');
-      const updatedEntries = [newEntry, ...currentEntries];
-      localStorage.setItem(`entries_${targetUserId}`, JSON.stringify(updatedEntries));
-      setEntries(updatedEntries);
+      try {
+        const r = await fetch('/api/storage?action=addEntry', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: targetUserId, entry: newEntry }) });
+        const b = await r.json();
+        if (!r.ok) throw new Error(b.error || 'Add failed');
+        setEntries(b.entries || []);
+        if (user?.role === 'admin') fetchMasterData();
+      } catch (e) { pushToast('Failed to add entry', 'error'); }
     }
     setFormData(INITIAL_FORM_STATE);
     setShowOTModal(false);
@@ -245,35 +497,44 @@ export default function App() {
 
 
 
-  const deleteEntry = (id: string, logOwnerEmpId?: string) => {
+  const deleteEntry = async (id: string, logOwnerEmpId?: string) => {
     if (!confirm("Permanently delete this entry?")) return;
     let targetId = logOwnerEmpId ? allUsers.find(u => u.empId.toLowerCase() === logOwnerEmpId.toLowerCase())?.id : (adminViewingUserId || user?.id);
     if (!targetId) return;
-    const current = JSON.parse(localStorage.getItem(`entries_${targetId}`) || '[]');
-    const filtered = current.filter((e: any) => e.id !== id);
-    localStorage.setItem(`entries_${targetId}`, JSON.stringify(filtered));
-    if (adminViewingUserId === targetId || user?.id === targetId) setEntries(filtered);
+    try {
+      const r = await fetch('/api/storage?action=deleteEntry', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: targetId, entryId: id }) });
+      const b = await r.json();
+      if (!r.ok) throw new Error(b.error || 'Delete failed');
+      if (adminViewingUserId === targetId || user?.id === targetId) setEntries(b.entries || []);
+      if (user?.role === 'admin') fetchMasterData();
+    } catch (e) { pushToast('Failed to delete entry', 'error'); }
     setAllUsers([...allUsers]);
   };
 
-  const deleteUser = (id: string) => {
+  const deleteUser = async (id: string) => {
     if (!confirm('Delete user and all entries? This cannot be undone.')) return;
-    const updated = allUsers.filter(u => u.id !== id);
-    localStorage.setItem('registered_users', JSON.stringify(updated));
-    localStorage.removeItem(`entries_${id}`);
-    setAllUsers(updated);
-    if (adminViewingUserId === id) { setAdminViewingUserId(null); setEntries([]); }
+    try {
+      const r = await fetch('/api/storage?action=deleteUser', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: id }) });
+      const b = await r.json();
+      if (!r.ok) throw new Error(b.error || 'Delete user failed');
+      setAllUsers(b.users || []);
+      if (adminViewingUserId === id) { setAdminViewingUserId(null); setEntries([]); }
+      fetchMasterData();
+    } catch (e) { pushToast('Failed to delete user', 'error'); }
   };
 
-  const updateStatus = (userId: string, entryId: string, newStatus: EntryStatus, reason?: string) => {
+  const updateStatus = async (userId: string, entryId: string, newStatus: EntryStatus, reason?: string) => {
     const internalUser = allUsers.find(u => u.empId.toLowerCase() === userId.toLowerCase());
     if (!internalUser) return;
-    const savedEntries = JSON.parse(localStorage.getItem(`entries_${internalUser.id}`) || '[]');
-    const updated = savedEntries.map((e: TimeData) => e.id === entryId ? { ...e, status: newStatus, reason: reason !== undefined ? reason : e.reason } : e);
-    localStorage.setItem(`entries_${internalUser.id}`, JSON.stringify(updated));
-    if (adminViewingUserId === internalUser.id) setEntries(updated);
-    else if (!adminViewingUserId && (activeTab === 'all-logs' || activeTab === 'admin')) setAllUsers([...allUsers]);
-    alert(`Status updated to ${newStatus}.`);
+    try {
+      const r = await fetch('/api/storage?action=updateStatus', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: internalUser.id, entryId, newStatus, reason }) });
+      const b = await r.json();
+      if (!r.ok) throw new Error(b.error || 'Update status failed');
+      if (adminViewingUserId === internalUser.id) setEntries(b.entries || []);
+      else if (!adminViewingUserId && (activeTab === 'all-logs' || activeTab === 'admin')) setAllUsers([...allUsers]);
+      fetchMasterData();
+      pushToast(`Status updated to ${newStatus}.`, 'success');
+    } catch (e) { pushToast('Failed to update status', 'error'); }
   };
 
   const startEdit = (entry: TimeData) => {
@@ -311,21 +572,31 @@ export default function App() {
 
   const masterData = useMemo(() => {
     if (user?.role !== 'admin') return [];
-    return allUsers.flatMap(u => {
-      const uData = JSON.parse(localStorage.getItem(`entries_${u.id}`) || '[]');
-      return uData.map((d: any) => ({ ...d, userName: u.name, userId: u.empId }));
-    }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [allUsers, user]);
+    return masterDataServer;
+  }, [masterDataServer, user]);
 
   const filteredMasterData = useMemo(() => {
     if (!masterSearchQuery) return masterData;
     const q = masterSearchQuery.toLowerCase();
-    return masterData.filter(d => 
-      d.userName.toLowerCase().includes(q) || 
+    return masterData.filter(d =>
+      d.userName.toLowerCase().includes(q) ||
       d.userId.toLowerCase().includes(q) ||
       new Date(d.date).toLocaleDateString().includes(q)
     );
   }, [masterData, masterSearchQuery]);
+
+  const otAdminEntries = useMemo(() => {
+    if (user?.role !== 'admin') return [];
+    return masterDataServer.filter(d => {
+      const lSec = timeToSeconds(d.currentLogin);
+      const sBase = d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+      return lSec > sBase && d.status === 'Approved';
+    });
+  }, [masterDataServer, user]);
+
+  useEffect(() => {
+    if (user?.role === 'admin') { fetchMasterData(); fetchMigrations(); }
+  }, [user, allUsers]);
 
   const filteredDetailsEntries = useMemo(() => {
     if (!detailsSearchQuery) return entries;
@@ -338,7 +609,7 @@ export default function App() {
   }, [entries, detailsSearchQuery]);
 
   const otLogEntries = useMemo(() => {
-    return entries.filter(e => timeToSeconds(e.currentLogin) > (e.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600));
+    return entries.filter(e => timeToSeconds(e.currentLogin) > (e.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600) && e.status === 'Approved');
   }, [entries]);
 
   if (!user) {
@@ -380,7 +651,7 @@ export default function App() {
             </button>
           </form>
 
-          <button onClick={() => setAuthView(authView === 'login' ? 'register' : 'login')} className="w-full mt-6 text-[9px] text-slate-400 font-black uppercase tracking-[0.2em] text-center hover:text-indigo-600 transition-colors">
+          <button onClick={() => { if (authRole === 'admin') { alert('Admin registration disabled. Default admin: TEAM / Pooja852'); return; } setAuthView(authView === 'login' ? 'register' : 'login'); }} className="w-full mt-6 text-[9px] text-slate-400 font-black uppercase tracking-[0.2em] text-center hover:text-indigo-600 transition-colors">
             {authView === 'login' ? 'Create Account' : 'Back to Login'}
           </button>
         </div>
@@ -413,6 +684,28 @@ export default function App() {
         </div>
       )}
 
+      {showMigrationModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl p-8 space-y-6 animate-in zoom-in duration-300">
+            <div className="flex flex-col items-center text-center">
+              <div className="p-4 bg-indigo-500/10 rounded-3xl text-indigo-500 mb-4"><AlertCircleIcon size={34}/></div>
+              <h3 className="text-xl font-black dark:text-white uppercase tracking-tight">Run Local Migration</h3>
+              <p className="text-sm text-slate-500 mt-2">This will copy any local <strong>users</strong> and optional <strong>entries</strong> from your browser into the central database. This action can be repeated but is intended as a one-time import.</p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={migrationIncludeEntries} onChange={() => setMigrationIncludeEntries(p => !p)} /> Include entries in migration</label>
+            </div>
+
+            <div className="space-y-3">
+              <button onClick={() => { setShowMigrationModal(false); }} disabled={isMigrating} className="w-full py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-2xl font-black text-xs uppercase tracking-widest">Cancel</button>
+              <button onClick={() => runMigrationNow(migrationIncludeEntries)} disabled={isMigrating} className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl">{isMigrating ? 'Migrating...' : 'Run migration now'}</button>
+              <button onClick={() => setShowMigrationModal(false)} className="w-full py-3 text-slate-400 font-bold text-[10px] uppercase tracking-widest">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <aside className={`w-full md:w-60 flex flex-col p-5 shadow-2xl ${user.role === 'admin' ? 'bg-slate-950' : 'bg-slate-900'} text-white`}>
         <div className="flex items-center gap-3 mb-10 px-2">
           <ActivityIcon size={20} className={user.role === 'admin' ? 'text-amber-500' : 'text-indigo-500'}/>
@@ -428,7 +721,6 @@ export default function App() {
               <button onClick={() => { setAdminViewingUserId(null); setActiveTab('admin'); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'admin' && !adminViewingUserId ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:bg-white/5'}`}><UsersIcon size={16}/> Team Hub</button>
               <button onClick={() => { setAdminViewingUserId(null); setActiveTab('all-logs'); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'all-logs' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:bg-white/5'}`}><LayersIcon size={16}/> Master Stream</button>
               <button onClick={() => { setAdminViewingUserId(null); setActiveTab('ot-admin'); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'ot-admin' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:bg-white/5'}`}><ZapIcon size={16}/> OT Admin</button>
-              <button onClick={() => { setAdminViewingUserId(null); setActiveTab('users'); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'users' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:bg-white/5'}`}><KeyIcon size={16}/> User Accounts</button>
             </>
           )}
           <button onClick={() => setActiveTab('calc')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'calc' ? 'bg-indigo-600' : 'text-slate-400 hover:bg-white/5'}`}><ClockIcon size={16}/> Dashboard</button>
@@ -726,7 +1018,15 @@ export default function App() {
 
           {activeTab === 'admin' && (
             <div className="space-y-6 animate-in fade-in duration-500">
-              <div className="flex justify-between items-center"><h2 className="text-xl font-black uppercase dark:text-white">Team Hub</h2><button onClick={() => exportConsolidatedExcel(masterData)} className="bg-amber-600 px-6 py-4 text-white rounded-xl font-black text-[10px] uppercase shadow-xl hover:bg-amber-700 transition-all">Master Analysis Report</button></div>
+              <div className="flex justify-between items-center">
+                <h2 className="text-xl font-black uppercase dark:text-white">Team Hub</h2>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => exportConsolidatedExcel(masterDataServer)} className="bg-amber-600 px-6 py-4 text-white rounded-xl font-black text-[10px] uppercase shadow-xl hover:bg-amber-700 transition-all">Master Analysis Report</button>
+                  <button onClick={() => { fetchMigrations(); setActiveTab('migrations'); }} className="bg-slate-200 dark:bg-slate-800 px-4 py-3 rounded-xl text-[10px] font-black uppercase">Migration Reports</button>
+                  <button onClick={() => setShowMigrationModal(true)} disabled={isMigrating} className="bg-emerald-600 px-4 py-3 rounded-xl text-[10px] font-black uppercase text-white">{isMigrating ? 'Migrating...' : 'Run migration now'}</button>
+                  <button onClick={() => setShowPasswords(p => !p)} className="bg-slate-200 dark:bg-slate-800 px-4 py-3 rounded-xl text-[10px] font-black uppercase">{showPasswords ? 'Hide Passwords' : 'Show Passwords'}</button>
+                </div>
+              </div>
               <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-sm border dark:border-slate-800">
                 <div className="relative mb-8 group"><SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-amber-500 transition-colors" size={16}/><input type="text" placeholder="Search team by ID or name..." value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)} className="w-full py-5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none pl-14 pr-8 text-xs font-bold border focus:border-amber-500/20 dark:text-white shadow-inner" /></div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -734,7 +1034,7 @@ export default function App() {
                     <div key={u.id} className="p-6 bg-slate-50 dark:bg-slate-950 rounded-3xl flex items-center justify-between hover:ring-2 hover:ring-amber-500 transition-all cursor-pointer group shadow-sm" onClick={() => { setAdminViewingUserId(u.id); setActiveTab('details'); }}>
                       <div className="flex items-center gap-4">
                         <div className="w-12 h-12 bg-amber-600/10 text-amber-600 rounded-2xl flex items-center justify-center font-black text-xs group-hover:bg-amber-600 group-hover:text-white transition-all shadow-inner">{u.name.charAt(0)}</div>
-                        <div className="overflow-hidden"><p className="text-xs font-black dark:text-white uppercase truncate">{u.name}</p><p className="text-[9px] font-mono text-slate-400 uppercase tracking-tighter mt-1">{u.empId}</p></div>
+                        <div className="overflow-hidden"><p className="text-xs font-black dark:text-white uppercase truncate">{u.name}</p><p className="text-[9px] font-mono text-slate-400 uppercase tracking-tighter mt-1">{u.empId}</p>{showPasswords && <p className="text-[10px] font-mono text-slate-500 mt-1">Password: <span className="font-black uppercase">{u.password || '-'}</span></p>}</div>
                       </div>
                       <div className="flex items-center gap-3">
                         <button onClick={(ev)=>{ ev.stopPropagation(); if(!confirm('Delete user and all their entries?')) return; deleteUser(u.id); }} title="Delete User" className="p-2 bg-rose-50/20 rounded-xl text-rose-500 hover:bg-rose-500/10 transition-all"><TrashIcon size={14}/></button>
@@ -747,11 +1047,152 @@ export default function App() {
             </div>
           )}
 
+          {activeTab === 'ot-admin' && (
+            <div className="animate-in fade-in duration-700 space-y-8">
+              <div className="flex justify-between items-center">
+                <div><h2 className="text-xl font-black uppercase dark:text-white">OT Admin Records</h2><p className="text-[10px] text-slate-400 font-bold mt-1">Approved overtime entries across all users</p></div>
+                <button onClick={() => exportConsolidatedExcel(otAdminEntries)} className="bg-amber-600 px-8 py-4 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-amber-700 transition-all shadow-amber-600/20"><ZapIcon size={16} className="mr-2 inline"/> Export OT Records</button>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border dark:border-slate-800 shadow-sm space-y-6">
+                <div className="relative group max-w-lg">
+                  <SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-amber-500 transition-colors" size={18}/>
+                  <input
+                    type="text"
+                    placeholder="Search OT records by agent name, ID, or date..."
+                    value={otSearchQuery}
+                    onChange={(e)=>setOtSearchQuery(e.target.value)}
+                    className="w-full py-5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none pl-14 pr-8 text-xs font-bold border focus:border-amber-500/20 dark:text-white shadow-inner"
+                  />
+                </div>
+
+                <div className="overflow-x-auto rounded-[2.5rem] border dark:border-slate-800">
+                  <table className="w-full text-left text-[10px] min-w-[1300px]">
+                    <thead className="bg-slate-50 dark:bg-slate-950 text-slate-400 uppercase font-black tracking-[0.1em] text-[8px] sticky top-0 z-10 border-b dark:border-slate-800">
+                      <tr>
+                        <th className="px-4 py-5">Agent Identity</th>
+                        <th className="px-4 py-5">Timeline</th>
+                        <th className="px-4 py-5">Shift</th>
+                        <th className="px-4 py-5">Login Dur.</th>
+                        <th className="px-4 py-5">Talk Time</th>
+                        <th className="px-4 py-5">Pause</th>
+                        <th className="px-4 py-5">Dispo</th>
+                        <th className="px-4 py-5">Dead</th>
+                        <th className="px-4 py-5 font-black text-indigo-500">Total Break</th>
+                        <th className="px-4 py-5 text-center">Inbound</th>
+                        <th className="px-4 py-5 text-center">Outbound</th>
+                        <th className="px-4 py-5">Reason</th>
+                        <th className="px-4 py-5 text-center">Status</th>
+                        <th className="px-4 py-5 text-center">Calculated OT</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y dark:divide-slate-800/50">
+                      {otAdminEntries.filter(log =>
+                        log.userName.toLowerCase().includes(otSearchQuery.toLowerCase()) ||
+                        log.userId.toLowerCase().includes(otSearchQuery.toLowerCase()) ||
+                        new Date(log.date).toLocaleDateString().includes(otSearchQuery)
+                      ).map(log => {
+                         const lSec = timeToSeconds(log.currentLogin);
+                         const sBase = log.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+                         const tBrk = timeToSeconds(log.pause) + timeToSeconds(log.dispo) + timeToSeconds(log.dead);
+                         const bLimit = log.shiftType === 'Full Day' ? 7200 : 2700;
+                         const bExceed = tBrk > bLimit;
+
+                         return (
+                          <tr key={log.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
+                            <td className="px-4 py-5">
+                              <div className="flex items-center gap-4">
+                                <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center font-black text-[10px] shadow-sm">{log.userName?.charAt(0)}</div>
+                                <div><div className="font-black dark:text-slate-200 uppercase">{log.userName}</div><div className="text-[9px] font-mono text-slate-400 mt-0.5 uppercase">{log.userId}</div></div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-5">
+                              <span className="font-bold text-slate-600 dark:text-slate-400 text-xs">{new Date(log.date).toLocaleDateString()}</span>
+                              <span className="block text-[9px] text-amber-500 font-black mt-1 uppercase tracking-widest">{log.shiftType}</span>
+                            </td>
+                            <td className="px-4 py-5"><span className="text-[8px] text-amber-500 font-black uppercase">{log.shiftType}</span></td>
+                            <td className="px-4 py-5 font-mono font-black text-amber-500">{log.currentLogin}</td>
+                            <td className="px-4 py-5 font-mono dark:text-slate-300">{log.talk}</td>
+                            <td className="px-4 py-5 font-mono dark:text-slate-400">{log.pause}</td>
+                            <td className="px-4 py-5 font-mono dark:text-slate-400">{log.dispo}</td>
+                            <td className="px-4 py-5 font-mono dark:text-slate-400">{log.dead}</td>
+                            <td className={`px-4 py-5 font-mono font-black ${bExceed ? 'text-rose-500' : 'text-emerald-500'}`}>{secondsToTime(tBrk)}</td>
+                            <td className="px-4 py-5 text-center font-black dark:text-slate-200">{log.inbound}</td>
+                            <td className="px-4 py-5 text-center font-black dark:text-slate-200">{log.outbound || 0}</td>
+                            <td className="px-4 py-5 text-sm text-slate-600">{log.reason ? (log.reason.length > 80 ? log.reason.slice(0,77) + '...' : log.reason) : '-'}</td>
+                            <td className="px-4 py-5 text-center"><StatusBadge status={log.status} /></td>
+                            <td className="px-4 py-5 text-center text-amber-600 font-black font-mono">{secondsToTime(lSec - sBase)}</td>
+                          </tr>
+                         );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'migrations' && (
+            <div className="space-y-6 animate-in fade-in duration-500">
+              <div className="flex justify-between items-center">
+                <h2 className="text-xl font-black uppercase dark:text-white">Migration Reports</h2>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => fetchMigrations()} className="bg-amber-600 px-6 py-4 text-white rounded-xl font-black text-[10px] uppercase shadow-xl hover:bg-amber-700 transition-all">Refresh</button>
+                  <button onClick={() => { setActiveTab('admin'); }} className="bg-slate-200 px-4 py-3 rounded-xl text-[10px] font-black uppercase">Back to Team Hub</button>
+                </div>
+              </div>
+              <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border dark:border-slate-800 shadow-sm">
+                {migrations.length === 0 ? (
+                  <div className="px-6 py-24 text-center text-slate-400 font-bold uppercase tracking-widest opacity-30">No migration reports found</div>
+                ) : (
+                  <div className="space-y-4">
+                    <table className="w-full text-left text-[12px]">
+                      <thead className="text-slate-400 uppercase text-[8px] font-black">
+                        <tr>
+                          <th className="px-4 py-3">Timestamp</th>
+                          <th className="px-4 py-3">Users</th>
+                          <th className="px-4 py-3">Entries</th>
+                          <th className="px-4 py-3">Details</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {migrations.map(m => (
+                          <tr key={m.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
+                            <td className="px-4 py-4">{new Date(m.created_at).toLocaleString()}</td>
+                            <td className="px-4 py-4 font-black">{m.migrated_users}</td>
+                            <td className="px-4 py-4 font-black">{m.migrated_entries}</td>
+                            <td className="px-4 py-4 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <button onClick={() => setExpandedMigrationId(expandedMigrationId === m.id ? null : m.id)} className="px-4 py-2 rounded-xl bg-indigo-500 text-white text-sm font-bold">{expandedMigrationId === m.id ? 'Hide' : 'View'}</button>
+                                <button onClick={() => downloadMigrationMapping(m.mapping, m.id, 'csv')} className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-sm font-bold">CSV</button>
+                                <button onClick={() => downloadMigrationMapping(m.mapping, m.id, 'zip')} className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-sm font-bold">ZIP</button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {expandedMigrationId && (() => { const mi = migrations.find(x => x.id === expandedMigrationId); return mi ? (
+                      <div className="mt-4">
+                        <div className="flex justify-end gap-3 mb-2">
+                          <button onClick={() => downloadMigrationMapping(mi.mapping, mi.id, 'csv')} className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold">Download CSV</button>
+                          <button onClick={() => downloadMigrationMapping(mi.mapping, mi.id, 'zip')} className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold">Download ZIP</button>
+                          <button onClick={() => { navigator.clipboard?.writeText(JSON.stringify(mi.mapping || {}, null, 2)); pushToast('Mapping copied to clipboard', 'success'); }} className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold">Copy</button>
+                        </div>
+                        <pre className="p-4 bg-slate-50 dark:bg-slate-950 rounded-lg text-xs font-mono overflow-auto">{JSON.stringify(mi.mapping || {}, null, 2)}</pre>
+                      </div>
+                    ) : null; })() }
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {activeTab === 'all-logs' && (
             <div className="animate-in fade-in duration-700 space-y-8">
               <div className="flex justify-between items-center">
                 <div><h2 className="text-xl font-black uppercase dark:text-white">Master Property Stream</h2><p className="text-[10px] text-slate-400 font-bold mt-1">Enterprise audit of all extracted session properties (Excel Pattern)</p></div>
-                <button onClick={() => exportConsolidatedExcel(masterData)} className="bg-emerald-600 px-8 py-4 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-emerald-700 transition-all shadow-emerald-600/20"><FileSpreadsheetIcon size={16} className="mr-2 inline"/> Generate Team Report</button>
+                <button onClick={() => exportConsolidatedExcel(masterDataServer)} className="bg-emerald-600 px-8 py-4 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-emerald-700 transition-all shadow-emerald-600/20"><FileSpreadsheetIcon size={16} className="mr-2 inline"/> Generate Team Report</button>
               </div>
 
               <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border dark:border-slate-800 shadow-sm space-y-6">
@@ -834,6 +1275,17 @@ export default function App() {
               </div>
             </div>
           )}
+        </div>
+
+        {/* Toast container */}
+        <div className="fixed bottom-6 right-6 z-[200] flex flex-col-reverse gap-3">
+          {toasts.map(t => (
+            <div key={t.id} className={`max-w-sm w-full px-4 py-3 rounded-lg shadow-lg text-sm flex items-start gap-3 ${t.type === 'success' ? 'bg-emerald-600 text-white' : t.type === 'error' ? 'bg-rose-600 text-white' : t.type === 'warning' ? 'bg-amber-500 text-black' : 'bg-slate-900 text-white'}`}>
+              <div className="font-black text-xs uppercase leading-tight mr-2">{t.type === 'success' ? 'Success' : t.type === 'error' ? 'Error' : t.type === 'warning' ? 'Warning' : 'Info'}</div>
+              <div className="flex-1 text-[13px]">{t.message}</div>
+              <button onClick={() => setToasts(ts => ts.filter(x => x.id !== t.id))} className="text-white opacity-80 ml-3 font-black">×</button>
+            </div>
+          ))}
         </div>
       </main>
     </div>
