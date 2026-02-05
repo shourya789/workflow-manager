@@ -118,6 +118,12 @@ export default function App() {
   const [approvalModalOpen, setApprovalModalOpen] = useState(false);
   const [approvalReason, setApprovalReason] = useState('');
 
+  // Pagination state for admin tables
+  const [masterCurrentPage, setMasterCurrentPage] = useState(1);
+  const [masterPageSize] = useState(50); // Fixed page size
+  const [detailsCurrentPage, setDetailsCurrentPage] = useState(1);
+  const [detailsPageSize] = useState(50);
+
   // Advanced Search State
   const [detailsDateStart, setDetailsDateStart] = useState('');
   const [detailsDateEnd, setDetailsDateEnd] = useState('');
@@ -128,7 +134,32 @@ export default function App() {
   const [showResetConfirm1, setShowResetConfirm1] = useState(false);
   const [showResetConfirm2, setShowResetConfirm2] = useState(false);
 
-  const fetchMasterData = async () => {
+  // Throttle state for fetchMasterData (prevents excessive API calls)
+  const lastFetchRef = React.useRef<number>(0);
+  const pendingFetchRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  const fetchMasterData = async (force = false) => {
+    const now = Date.now();
+    const timeSinceLastFetch = now - lastFetchRef.current;
+    
+    // Throttle: max 1 call per 3 seconds (unless forced)
+    if (!force && timeSinceLastFetch < 3000) {
+      // Schedule a delayed fetch if one isn't already scheduled
+      if (!pendingFetchRef.current) {
+        pendingFetchRef.current = setTimeout(() => {
+          pendingFetchRef.current = null;
+          fetchMasterData(true);
+        }, 3000 - timeSinceLastFetch);
+      }
+      return;
+    }
+    
+    lastFetchRef.current = now;
+    if (pendingFetchRef.current) {
+      clearTimeout(pendingFetchRef.current);
+      pendingFetchRef.current = null;
+    }
+    
     try {
       const r = await fetch('/api/storage?action=getAllEntries');
       const d = await r.json();
@@ -588,31 +619,45 @@ export default function App() {
   }, [masterDataServer, user]);
 
   const filteredMasterData = useMemo(() => {
-    if (!masterSearchQuery) return masterData;
-    const q = masterSearchQuery.toLowerCase();
-    return masterData.filter(d => {
-      const matchesSearch = d.userName.toLowerCase().includes(q) ||
-        d.userId.toLowerCase().includes(q) ||
-        new Date(d.date).toLocaleDateString('en-GB').includes(q);
+    let result = masterData;
+    
+    if (masterSearchQuery || masterStatusFilter !== 'All' || masterShiftFilter !== 'All' || masterDateStart || masterDateEnd) {
+      const q = masterSearchQuery.toLowerCase();
+      result = masterData.filter(d => {
+        const matchesSearch = !masterSearchQuery || d.userName.toLowerCase().includes(q) ||
+          d.userId.toLowerCase().includes(q) ||
+          new Date(d.date).toLocaleDateString('en-GB').includes(q);
 
-      const matchesStatus = masterStatusFilter === 'All' ? true : d.status === masterStatusFilter;
-      const matchesShift = masterShiftFilter === 'All' ? true : d.shiftType === masterShiftFilter;
+        const matchesStatus = masterStatusFilter === 'All' ? true : d.status === masterStatusFilter;
+        const matchesShift = masterShiftFilter === 'All' ? true : d.shiftType === masterShiftFilter;
 
-      let matchesDate = true;
-      if (masterDateStart) {
-        const start = new Date(masterDateStart);
-        start.setHours(0, 0, 0, 0);
-        matchesDate = matchesDate && new Date(d.date) >= start;
-      }
-      if (masterDateEnd) {
-        const end = new Date(masterDateEnd);
-        end.setHours(23, 59, 59, 999);
-        matchesDate = matchesDate && new Date(d.date) <= end;
-      }
+        let matchesDate = true;
+        if (masterDateStart) {
+          const start = new Date(masterDateStart);
+          start.setHours(0, 0, 0, 0);
+          matchesDate = matchesDate && new Date(d.date) >= start;
+        }
+        if (masterDateEnd) {
+          const end = new Date(masterDateEnd);
+          end.setHours(23, 59, 59, 999);
+          matchesDate = matchesDate && new Date(d.date) <= end;
+        }
 
-      return matchesSearch && matchesStatus && matchesShift && matchesDate;
-    });
+        return matchesSearch && matchesStatus && matchesShift && matchesDate;
+      });
+    }
+    
+    return result;
   }, [masterData, masterSearchQuery, masterStatusFilter, masterShiftFilter, masterDateStart, masterDateEnd]);
+
+  // Paginated master data (client-side pagination for performance)
+  const paginatedMasterData = useMemo(() => {
+    const startIdx = (masterCurrentPage - 1) * masterPageSize;
+    const endIdx = startIdx + masterPageSize;
+    return filteredMasterData.slice(startIdx, endIdx);
+  }, [filteredMasterData, masterCurrentPage, masterPageSize]);
+
+  const masterTotalPages = useMemo(() => Math.ceil(filteredMasterData.length / masterPageSize), [filteredMasterData.length, masterPageSize]);
 
   const otEntries = useMemo(() => {
     return masterData.filter(d => timeToSeconds(d.currentLogin) > (d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600) && (d.status === 'Approved'));
@@ -631,6 +676,15 @@ export default function App() {
   useEffect(() => {
     if (user?.role === 'admin') { fetchMasterData(); fetchMigrations(); }
   }, [user, allUsers]);
+
+  // Reset to page 1 when filters change (better UX)
+  useEffect(() => {
+    setMasterCurrentPage(1);
+  }, [masterSearchQuery, masterStatusFilter, masterShiftFilter, masterDateStart, masterDateEnd]);
+
+  useEffect(() => {
+    setDetailsCurrentPage(1);
+  }, [detailsSearchQuery, detailsDateStart, detailsDateEnd, detailsStatusFilter, detailsShiftFilter]);
 
   const filteredDetailsEntries = useMemo(() => {
     let result = entries;
@@ -673,6 +727,15 @@ export default function App() {
 
     return result;
   }, [entries, detailsSearchQuery, detailsDateStart, detailsDateEnd, detailsStatusFilter, detailsShiftFilter]);
+
+  // Paginated details entries (client-side pagination)
+  const paginatedDetailsEntries = useMemo(() => {
+    const startIdx = (detailsCurrentPage - 1) * detailsPageSize;
+    const endIdx = startIdx + detailsPageSize;
+    return filteredDetailsEntries.slice(startIdx, endIdx);
+  }, [filteredDetailsEntries, detailsCurrentPage, detailsPageSize]);
+
+  const detailsTotalPages = useMemo(() => Math.ceil(filteredDetailsEntries.length / detailsPageSize), [filteredDetailsEntries.length, detailsPageSize]);
 
   const otLogEntries = useMemo(() => {
     return entries.filter(e => timeToSeconds(e.currentLogin) > (e.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600));
@@ -1143,8 +1206,8 @@ export default function App() {
                 </div>
 
                 <div className="overflow-x-auto rounded-[2rem] border dark:border-slate-800/50">
-                  <table className="w-full text-left text-[10px] border-collapse min-w-[1300px]">
-                    <thead className="bg-slate-50 dark:bg-slate-950 text-slate-400 uppercase font-black tracking-[0.1em] text-[8px] sticky top-0 z-10 border-b dark:border-slate-800">
+                  <table className="w-full text-left text-[13px] border-collapse min-w-[1300px]">
+                    <thead className="bg-slate-50 dark:bg-slate-950 text-slate-400 uppercase font-black tracking-[0.1em] text-[10px] sticky top-0 z-10 border-b dark:border-slate-800">
                       <tr>
                         <th className="px-4 py-5 whitespace-nowrap">Extraction Date</th>
                         <th className="px-4 py-5">Shift</th>
@@ -1165,7 +1228,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody className="divide-y dark:divide-slate-800/50">
-                      {filteredDetailsEntries.map((e) => {
+                      {paginatedDetailsEntries.map((e) => {
                         const tBrk = timeToSeconds(e.pause) + timeToSeconds(e.dispo) + timeToSeconds(e.dead);
                         const sLimit = e.shiftType === 'Full Day' ? 7200 : 2700;
                         const bExceed = tBrk > sLimit;
@@ -1174,9 +1237,9 @@ export default function App() {
                           <tr key={e.id} className="hover:bg-indigo-50/30 dark:hover:bg-indigo-950/10 transition-colors">
                             <td className="px-4 py-5">
                               <div className="font-black dark:text-slate-200">{new Date(e.date).toLocaleDateString()}</div>
-                              <div className="text-[7px] text-slate-400 uppercase font-bold">{new Date(e.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                              <div className="text-[9px] text-slate-400 uppercase font-bold">{new Date(e.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                             </td>
-                            <td className="px-4 py-5"><span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded font-black uppercase text-[7px] dark:text-slate-300">{e.shiftType}</span></td>
+                            <td className="px-4 py-5"><span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded font-black uppercase text-[9px] dark:text-slate-300">{e.shiftType}</span></td>
                             <td className="px-4 py-5 font-mono font-black text-indigo-500">{e.currentLogin}</td>
                             <td className="px-4 py-5 font-mono dark:text-slate-300">{e.talk}</td>
                             <td className="px-4 py-5 font-mono dark:text-slate-300">{e.customerTalk}</td>
@@ -1199,12 +1262,26 @@ export default function App() {
                           </tr>
                         );
                       })}
-                      {filteredDetailsEntries.length === 0 && (
+                      {paginatedDetailsEntries.length === 0 && (
                         <tr><td colSpan={16} className="px-6 py-24 text-center text-slate-400 font-bold uppercase tracking-[0.2em] opacity-30">No sequential entries recorded matching search criteria</td></tr>
                       )}
                     </tbody>
                   </table>
                 </div>
+                {detailsTotalPages > 1 && (
+                  <div className="flex items-center justify-between px-6 py-4 bg-slate-50 dark:bg-slate-950 rounded-2xl mt-4">
+                    <div className="text-sm text-slate-600 dark:text-slate-400">
+                      Showing {((detailsCurrentPage - 1) * detailsPageSize) + 1}-{Math.min(detailsCurrentPage * detailsPageSize, filteredDetailsEntries.length)} of {filteredDetailsEntries.length} entries
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => setDetailsCurrentPage(1)} disabled={detailsCurrentPage === 1} className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed">First</button>
+                      <button onClick={() => setDetailsCurrentPage(p => p - 1)} disabled={detailsCurrentPage === 1} className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed">Prev</button>
+                      <span className="px-4 py-2 text-xs font-bold dark:text-white">Page {detailsCurrentPage} of {detailsTotalPages}</span>
+                      <button onClick={() => setDetailsCurrentPage(p => p + 1)} disabled={detailsCurrentPage === detailsTotalPages} className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed">Next</button>
+                      <button onClick={() => setDetailsCurrentPage(detailsTotalPages)} disabled={detailsCurrentPage === detailsTotalPages} className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed">Last</button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1229,8 +1306,8 @@ export default function App() {
                 </div>
 
                 <div className="overflow-x-auto rounded-[2rem] border dark:border-slate-800/50">
-                  <table className="w-full text-left text-[11px]">
-                    <thead className="bg-slate-50 dark:bg-slate-950/50 font-black uppercase tracking-[0.2em] text-slate-400 text-[8px]">
+                  <table className="w-full text-left text-[13px]">
+                    <thead className="bg-slate-50 dark:bg-slate-950/50 font-black uppercase tracking-[0.2em] text-slate-400 text-[10px]">
                       <tr>
                         <th className="px-6 py-5">Shift Date</th>
                         <th className="px-6 py-5">Logged Duration</th>
@@ -1248,7 +1325,7 @@ export default function App() {
                           <tr key={e.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
                             <td className="px-6 py-6">
                               <span className="font-black dark:text-slate-200">{new Date(e.date).toLocaleDateString()}</span>
-                              <span className="block text-[8px] text-slate-400 font-black uppercase mt-0.5">{e.shiftType}</span>
+                              <span className="block text-[10px] text-slate-400 font-black uppercase mt-0.5">{e.shiftType}</span>
                             </td>
                             <td className="px-6 py-6 font-mono font-black dark:text-slate-400">{e.currentLogin}</td>
                             <td className="px-6 py-6 text-center text-amber-600 font-black font-mono">{secondsToTime(lSec - sBase)}</td>
@@ -1324,8 +1401,8 @@ export default function App() {
                             }}
                             className="w-4 h-4 text-amber-600 bg-slate-100 border-slate-300 rounded focus:ring-amber-500 dark:focus:ring-amber-600 dark:ring-offset-slate-800 focus:ring-2 dark:bg-slate-700 dark:border-slate-600"
                           />
-                          <div className="w-12 h-12 bg-amber-600/10 text-amber-600 rounded-2xl flex items-center justify-center font-black text-xs group-hover:bg-amber-600 group-hover:text-white transition-all shadow-inner">{u.name.charAt(0)}</div>
-                          <div className="overflow-hidden"><p className="text-xs font-black dark:text-white uppercase truncate">{u.name}</p><p className="text-[9px] font-mono text-slate-400 uppercase tracking-tighter mt-1">{u.empId}</p>{showPasswords && <p className="text-[10px] font-mono text-slate-500 mt-1">Password: <span className="font-black uppercase">{u.password || '-'}</span></p>}</div>
+                          <div className="w-12 h-12 bg-amber-600/10 text-amber-600 rounded-2xl flex items-center justify-center font-black text-sm group-hover:bg-amber-600 group-hover:text-white transition-all shadow-inner">{u.name.charAt(0)}</div>
+                          <div className="overflow-hidden"><p className="text-sm font-black dark:text-white uppercase truncate">{u.name}</p><p className="text-[11px] font-mono text-slate-400 uppercase tracking-tighter mt-1">{u.empId}</p>{showPasswords && <p className="text-xs font-mono text-slate-500 mt-1">Password: <span className="font-black uppercase">{u.password || '-'}</span></p>}</div>
                         </div>
                         <div className="flex items-center gap-3">
                           <button onClick={(ev) => { ev.stopPropagation(); if (!confirm('Delete user and all their entries?')) return; deleteUser(u.id); }} title="Delete User" className="p-2 bg-rose-50/20 rounded-xl text-rose-500 hover:bg-rose-500/10 transition-all"><TrashIcon size={14} /></button>
@@ -1353,8 +1430,8 @@ export default function App() {
                   <div className="px-6 py-24 text-center text-slate-400 font-bold uppercase tracking-widest opacity-30">No migration reports found</div>
                 ) : (
                   <div className="space-y-4">
-                    <table className="w-full text-left text-[12px]">
-                      <thead className="text-slate-400 uppercase text-[8px] font-black">
+                    <table className="w-full text-left text-sm">
+                      <thead className="text-slate-400 uppercase text-[10px] font-black">
                         <tr>
                           <th className="px-4 py-3">Timestamp</th>
                           <th className="px-4 py-3">Users</th>
@@ -1442,8 +1519,8 @@ export default function App() {
                 </div>
 
                 <div className="overflow-x-auto rounded-[2.5rem] border dark:border-slate-800">
-                  <table className="w-full text-left text-[10px] min-w-[1300px]">
-                    <thead className="bg-slate-50 dark:bg-slate-950 text-slate-400 uppercase font-black tracking-[0.1em] text-[8px] sticky top-0 z-10 border-b dark:border-slate-800">
+                  <table className="w-full text-left text-[13px] min-w-[1300px]">
+                    <thead className="bg-slate-50 dark:bg-slate-950 text-slate-400 uppercase font-black tracking-[0.1em] text-[10px] sticky top-0 z-10 border-b dark:border-slate-800">
                       <tr>
                         <th className="px-4 py-5">Agent Identity</th>
                         <th className="px-4 py-5">Timeline</th>
@@ -1462,7 +1539,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody className="divide-y dark:divide-slate-800/50">
-                      {filteredMasterData.map(log => {
+                      {paginatedMasterData.map(log => {
                         const lSec = timeToSeconds(log.currentLogin);
                         const sBase = log.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
                         const tBrk = timeToSeconds(log.pause) + timeToSeconds(log.dispo) + timeToSeconds(log.dead);
@@ -1473,15 +1550,15 @@ export default function App() {
                           <tr key={log.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
                             <td className="px-4 py-5">
                               <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-black text-[10px] shadow-sm">{log.userName?.charAt(0)}</div>
-                                <div><div className="font-black dark:text-slate-200 uppercase">{log.userName}</div><div className="text-[9px] font-mono text-slate-400 mt-0.5 uppercase">{log.userId}</div></div>
+                                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-black text-xs shadow-sm">{log.userName?.charAt(0)}</div>
+                                <div><div className="font-black dark:text-slate-200 uppercase">{log.userName}</div><div className="text-[11px] font-mono text-slate-400 mt-0.5 uppercase">{log.userId}</div></div>
                               </div>
                             </td>
                             <td className="px-4 py-5">
-                              <span className="font-bold text-slate-600 dark:text-slate-400 text-xs">{new Date(log.date).toLocaleDateString()}</span>
-                              <span className="block text-[9px] text-indigo-500 font-black mt-1 uppercase tracking-widest">{log.shiftType}</span>
+                              <span className="font-bold text-slate-600 dark:text-slate-400 text-sm">{new Date(log.date).toLocaleDateString()}</span>
+                              <span className="block text-[11px] text-indigo-500 font-black mt-1 uppercase tracking-widest">{log.shiftType}</span>
                             </td>
-                            <td className="px-4 py-5"><span className="text-[8px] text-indigo-500 font-black uppercase">{log.shiftType}</span></td>
+                            <td className="px-4 py-5"><span className="text-[10px] text-indigo-500 font-black uppercase">{log.shiftType}</span></td>
                             <td className="px-4 py-5 font-mono font-black text-indigo-500">{log.currentLogin}</td>
                             <td className="px-4 py-5 font-mono dark:text-slate-300">{log.talk}</td>
                             <td className="px-4 py-5 font-mono dark:text-slate-400">{log.pause}</td>
@@ -1494,7 +1571,7 @@ export default function App() {
                             <td className="px-4 py-5 text-center">
                               <div className="flex flex-col items-center gap-2">
                                 <StatusBadge status={log.status} />
-                                {lSec > sBase && <span className="text-[8px] font-black text-amber-600 uppercase">OT: {secondsToTime(lSec - sBase)}</span>}
+                                {lSec > sBase && <span className="text-[10px] font-black text-amber-600 uppercase">OT: {secondsToTime(lSec - sBase)}</span>}
                               </div>
                             </td>
                             <td className="px-4 py-5 text-right">
@@ -1515,6 +1592,20 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
+                {masterTotalPages > 1 && (
+                  <div className="flex items-center justify-between px-6 py-4 bg-slate-50 dark:bg-slate-950 rounded-2xl mt-4">
+                    <div className="text-sm text-slate-600 dark:text-slate-400">
+                      Showing {((masterCurrentPage - 1) * masterPageSize) + 1}-{Math.min(masterCurrentPage * masterPageSize, filteredMasterData.length)} of {filteredMasterData.length} entries
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => setMasterCurrentPage(1)} disabled={masterCurrentPage === 1} className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed">First</button>
+                      <button onClick={() => setMasterCurrentPage(p => p - 1)} disabled={masterCurrentPage === 1} className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed">Prev</button>
+                      <span className="px-4 py-2 text-xs font-bold dark:text-white">Page {masterCurrentPage} of {masterTotalPages}</span>
+                      <button onClick={() => setMasterCurrentPage(p => p + 1)} disabled={masterCurrentPage === masterTotalPages} className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed">Next</button>
+                      <button onClick={() => setMasterCurrentPage(masterTotalPages)} disabled={masterCurrentPage === masterTotalPages} className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed">Last</button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1530,8 +1621,8 @@ export default function App() {
                   <SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={18} /><input type="text" placeholder="Search OT records by name, employee ID, or date (DD/MM/YYYY)..." value={otAdminSearchQuery} onChange={(e) => setOtAdminSearchQuery(e.target.value)} className="w-full py-5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none pl-14 pr-8 text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner" /></div>
 
                 <div className="overflow-x-auto rounded-[2.5rem] border dark:border-slate-800">
-                  <table className="w-full text-left text-[10px] min-w-[1300px]">
-                    <thead className="bg-slate-50 dark:bg-slate-950 text-slate-400 uppercase font-black tracking-[0.1em] text-[8px] sticky top-0 z-10 border-b dark:border-slate-800">
+                  <table className="w-full text-left text-[13px] min-w-[1300px]">
+                    <thead className="bg-slate-50 dark:bg-slate-950 text-slate-400 uppercase font-black tracking-[0.1em] text-[10px] sticky top-0 z-10 border-b dark:border-slate-800">
                       <tr>
                         <th className="px-4 py-5">User</th>
                         <th className="px-4 py-5">Date</th>
@@ -1552,14 +1643,14 @@ export default function App() {
                           <tr key={log.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
                             <td className="px-4 py-5">
                               <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-black text-[10px] shadow-sm">{log.userName?.charAt(0)}</div>
-                                <div><div className="font-black dark:text-slate-200 uppercase">{log.userName}</div><div className="text-[9px] font-mono text-slate-400 mt-0.5 uppercase">{log.userId}</div></div>
+                                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-black text-xs shadow-sm">{log.userName?.charAt(0)}</div>
+                                <div><div className="font-black dark:text-slate-200 uppercase">{log.userName}</div><div className="text-[11px] font-mono text-slate-400 mt-0.5 uppercase">{log.userId}</div></div>
                               </div>
                             </td>
                             <td className="px-4 py-5">
-                              <span className="font-bold text-slate-600 dark:text-slate-400 text-xs">{new Date(log.date).toLocaleDateString('en-GB')}</span>
+                              <span className="font-bold text-slate-600 dark:text-slate-400 text-sm">{new Date(log.date).toLocaleDateString('en-GB')}</span>
                             </td>
-                            <td className="px-4 py-5"><span className="text-[8px] text-indigo-500 font-black uppercase">{log.shiftType}</span></td>
+                            <td className="px-4 py-5"><span className="text-[10px] text-indigo-500 font-black uppercase">{log.shiftType}</span></td>
                             <td className="px-4 py-5 font-mono font-black text-indigo-500">{log.currentLogin}</td>
                             <td className="px-4 py-5 font-mono font-black text-amber-600">{secondsToTime(lSec - sBase)}</td>
                             <td className="px-4 py-5 text-sm text-slate-600">{log.reason ? (log.reason.length > 80 ? log.reason.slice(0, 77) + '...' : log.reason) : '-'}</td>

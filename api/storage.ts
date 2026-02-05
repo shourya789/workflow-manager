@@ -71,6 +71,17 @@ async function ensureSchema(client: any) {
       )
     `);
     
+    // Create indexes for performance (safe - IF NOT EXISTS prevents duplicates)
+    try {
+      await client.execute(`CREATE INDEX IF NOT EXISTS idx_entries_user_id ON entries(user_id)`);
+      await client.execute(`CREATE INDEX IF NOT EXISTS idx_entries_date ON entries(date)`);
+      await client.execute(`CREATE INDEX IF NOT EXISTS idx_entries_status ON entries(status)`);
+      await client.execute(`CREATE INDEX IF NOT EXISTS idx_users_emp_id ON users(LOWER(emp_id))`);
+      console.log('Database indexes verified');
+    } catch (e) {
+      console.warn('Index creation warning (non-fatal):', e);
+    }
+    
     (global as any).__schemaChecked = true;
     console.log('Database schema verified successfully');
   } catch (e) {
@@ -262,7 +273,15 @@ export default async function handler(req: any, res: any) {
 
   if (action === 'getAllEntries' && method === 'GET') {
     try {
-      const r = await client.execute(`SELECT e.id, e.payload, e.status, e.date, u.name as user_name, u.emp_id as user_emp FROM entries e JOIN users u ON u.id = e.user_id ORDER BY e.date DESC`);
+      // Pagination support (backward compatible - defaults to all if not specified)
+      const limit = q.limit ? parseInt(q.limit as string, 10) : 1000; // Default max 1000
+      const offset = q.offset ? parseInt(q.offset as string, 10) : 0;
+      
+      // Get total count for pagination metadata
+      const countResult = await client.execute(`SELECT COUNT(*) as total FROM entries`);
+      const total = countResult.rows[0]?.total || 0;
+      
+      const r = await client.execute(`SELECT e.id, e.payload, e.status, e.date, u.name as user_name, u.emp_id as user_emp FROM entries e JOIN users u ON u.id = e.user_id ORDER BY e.date DESC LIMIT ? OFFSET ?`, [limit, offset]);
       const result = r.rows.map((row: any) => {
         try {
           return { id: row.id, date: row.date, ...JSON.parse(row.payload || '{}'), status: row.status, userName: row.user_name, userId: row.user_emp };
@@ -271,7 +290,7 @@ export default async function handler(req: any, res: any) {
           return { id: row.id, date: row.date, status: row.status, userName: row.user_name, userId: row.user_emp };
         }
       });
-      return res.status(200).json({ entries: result });
+      return res.status(200).json({ entries: result, total, limit, offset, hasMore: (offset + limit) < total });
     } catch (e) {
       console.error('getAllEntries error:', e);
       return res.status(500).json({ error: 'Failed to fetch entries', details: String(e) });
