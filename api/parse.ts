@@ -15,24 +15,49 @@ function extractDataWithRegex(text: string) {
     outbound: 0
   };
 
-  // Helper to extract and clean time in HH:MM:SS format
+  const normalizeTime = (raw: string): string | null => {
+    if (!raw) return null;
+    let time = raw;
+    // Clean up squashed text: "Time3:22:08" -> "3:22:08", "Pause2:15:30" -> "2:15:30"
+    time = time.replace(/^[^\d]*(\d)/, '$1');
+    const parts = time.split(':');
+    if (parts.length === 3) {
+      return parts.map(p => p.padStart(2, '0')).join(':');
+    }
+    if (parts.length === 2) {
+      return '00:' + parts.map(p => p.padStart(2, '0')).join(':');
+    }
+    return null;
+  };
+
+  // Helper to extract and clean time in HH:MM:SS format (first match)
   const extractTime = (patterns: RegExp[]): string => {
     for (const pattern of patterns) {
       const match = text.match(pattern);
-      if (match) {
-        let time = match[1];
-        // Clean up squashed text: "Time3:22:08" -> "3:22:08", "Pause2:15:30" -> "2:15:30"
-        time = time.replace(/^[^\d]*(\d)/, '$1');
-        const parts = time.split(':');
-        if (parts.length === 3) {
-          return parts.map(p => p.padStart(2, '0')).join(':');
-        }
-        if (parts.length === 2) {
-          return '00:' + parts.map(p => p.padStart(2, '0')).join(':');
-        }
+      if (match && match[1]) {
+        const normalized = normalizeTime(match[1]);
+        if (normalized) return normalized;
       }
     }
     return '00:00:00';
+  };
+
+  const extractTimeByOrder = (patterns: RegExp[], pick: 'first' | 'last'): string => {
+    const matches: Array<{ time: string; index: number }> = [];
+    for (const pattern of patterns) {
+      const flags = pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g';
+      const re = new RegExp(pattern.source, flags);
+      for (const match of text.matchAll(re)) {
+        if (!match[1]) continue;
+        const normalized = normalizeTime(match[1]);
+        if (!normalized) continue;
+        matches.push({ time: normalized, index: match.index ?? 0 });
+      }
+    }
+
+    if (!matches.length) return '00:00:00';
+    matches.sort((a, b) => a.index - b.index);
+    return pick === 'first' ? matches[0].time : matches[matches.length - 1].time;
   };
 
   // Helper to extract integer count
@@ -73,17 +98,20 @@ function extractDataWithRegex(text: string) {
     /(?:Total\s+)?Login[^\d]*(\d{1,2}:\d{2}:\d{2})/i
   ]);
 
-  result.loginTimestamp = extractTime([
+  result.loginTimestamp = extractTimeByOrder([
+    /First\s+Login[:\s-]*(\d{1,2}:\d{2}:\d{2})/i,
     /Login\s+At[:\s-]*(\d{1,2}:\d{2}:\d{2})/i,
     /Session\s+Start[:\s-]*(\d{1,2}:\d{2}:\d{2})/i,
     /Login(?:\s+Time)?[:\s-]*(\d{1,2}:\d{2}:\d{2})/i
-  ]);
+  ], 'first');
 
-  result.logoutTimestamp = extractTime([
+  result.logoutTimestamp = extractTimeByOrder([
     /Logout\s+At[:\s-]*(\d{1,2}:\d{2}:\d{2})/i,
     /Session\s+End[:\s-]*(\d{1,2}:\d{2}:\d{2})/i,
-    /Logout(?:\s+Time)?[:\s-]*(\d{1,2}:\d{2}:\d{2})/i
-  ]);
+    /Logout(?:\s+Time)?[:\s-]*(\d{1,2}:\d{2}:\d{2})/i,
+    /(?:Last\s+)?Out(?:\s+Time)?[:\s-]*(\d{1,2}:\d{2}:\d{2})/i,
+    /Log\s*Out[:\s-]*(\d{1,2}:\d{2}:\d{2})/i
+  ], 'last');
 
   result.wait = extractTime([
     /(?:Total\s+)?Wait(?:ing)?(?:\s+Time)?[:\s-]*(\d{1,2}:\d{2}:\d{2})/i,
@@ -117,6 +145,8 @@ function extractDataWithRegex(text: string) {
 
   result.outbound = extractCount([
     /Outbound\s+Calls?[:\s-]*(\d+)/i,
+    /Outbound\s+Call(?:s)?[^\d]*(\d+)/i,
+    /Out\s*bound\s+Call(?:s)?[^\d]*(\d+)/i,
     /Outbound[:\s]*(\d+)/i,
     /Out\s+Calls?[:\s]*(\d+)/i
   ]);
