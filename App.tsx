@@ -1566,7 +1566,7 @@ export default function App() {
                             <td className="px-4 py-5 font-mono dark:text-slate-400">{log.dead}</td>
                             <td className={`px-4 py-5 font-mono font-black ${bExceed ? 'text-rose-500' : 'text-emerald-500'}`}>{secondsToTime(tBrk)}</td>
                             <td className="px-4 py-5 text-center font-black dark:text-slate-200">{log.inbound}</td>
-                            <td className="px-4 py-5 text-center font-black dark:text-slate-200">{log.outbound || 0}</td>
+                            <td className="px-4 py-5 text-center font-black dark:text-slate-200">{log.outbound }</td>
                             <td className="px-4 py-5 text-sm text-slate-600">{log.reason ? (log.reason.length > 80 ? log.reason.slice(0, 77) + '...' : log.reason) : '-'}</td>
                             <td className="px-4 py-5 text-center">
                               <div className="flex flex-col items-center gap-2">

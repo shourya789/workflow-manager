@@ -60,7 +60,7 @@ function extractDataWithRegex(text: string) {
     return pick === 'first' ? matches[0].time : matches[matches.length - 1].time;
   };
 
-  // Helper to extract integer count
+  // Helper to extract integer count (first match)
   const extractCount = (patterns: RegExp[]): number => {
     for (const pattern of patterns) {
       const match = text.match(pattern);
@@ -70,6 +70,20 @@ function extractDataWithRegex(text: string) {
       }
     }
     return 0;
+  };
+
+  // Helper to extract the highest count across all matches
+  const extractCountByMax = (patterns: RegExp[]): number => {
+    let max = 0;
+    for (const pattern of patterns) {
+      const flags = pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g';
+      const re = new RegExp(pattern.source, flags);
+      for (const match of text.matchAll(re)) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > max) max = num;
+      }
+    }
+    return max;
   };
 
   // Extract each field with multiple pattern variations
@@ -137,13 +151,13 @@ function extractDataWithRegex(text: string) {
     /Cust(?:omer)?\s+Talk[^\d]*(\d{1,2}:\d{2}:\d{2})/i
   ]);
 
-  result.inbound = extractCount([
+  result.inbound = extractCountByMax([
     /Inbound\s+Calls?[:\s-]*(\d+)/i,
     /Inbound[:\s]*(\d+)/i,
     /In\s+Calls?[:\s]*(\d+)/i
   ]);
 
-  result.outbound = extractCount([
+  result.outbound = extractCountByMax([
     /Outbound\s+Calls?[:\s-]*(\d+)/i,
     /Outbound\s+Call(?:s)?[^\d]*(\d+)/i,
     /Out\s*bound\s+Call(?:s)?[^\d]*(\d+)/i,
