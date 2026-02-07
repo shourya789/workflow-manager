@@ -86,6 +86,22 @@ function extractDataWithRegex(text: string) {
     return max;
   };
 
+  const extractCallsSummaryCounts = (): { inbound: number; outbound: number } | null => {
+    const patterns = [
+      /Calls\s+Type\s+Calls\s+Counts\s+Inbound\s+Calls\s+(\d+)\s+Outbound\s+Calls\s+(\d+)/i,
+      /Calls\s+Counts\s+Inbound\s+Calls\s+(\d+)\s+Outbound\s+Calls\s+(\d+)/i
+    ];
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match) {
+        const inbound = parseInt(match[1], 10);
+        const outbound = parseInt(match[2], 10);
+        if (!isNaN(inbound) && !isNaN(outbound)) return { inbound, outbound };
+      }
+    }
+    return null;
+  };
+
   // Extract each field with multiple pattern variations
   result.pause = extractTime([
     /(?:Total\s+)?Pause(?:\s+Time)?[:\s-]*(\d{1,2}:\d{2}:\d{2})/i,
@@ -151,19 +167,25 @@ function extractDataWithRegex(text: string) {
     /Cust(?:omer)?\s+Talk[^\d]*(\d{1,2}:\d{2}:\d{2})/i
   ]);
 
-  result.inbound = extractCountByMax([
-    /Inbound\s+Calls?[:\s-]*(\d+)/i,
-    /Inbound[:\s]*(\d+)/i,
-    /In\s+Calls?[:\s]*(\d+)/i
-  ]);
+  const summaryCounts = extractCallsSummaryCounts();
+  if (summaryCounts) {
+    result.inbound = summaryCounts.inbound;
+    result.outbound = summaryCounts.outbound;
+  } else {
+    result.inbound = extractCountByMax([
+      /Inbound\s+Calls?[:\s-]*(\d+)/i,
+      /Inbound[:\s]*(\d+)/i,
+      /In\s+Calls?[:\s]*(\d+)/i
+    ]);
 
-  result.outbound = extractCountByMax([
-    /Outbound\s+Calls?[:\s-]*(\d+)/i,
-    /Outbound\s+Call(?:s)?[^\d]*(\d+)/i,
-    /Out\s*bound\s+Call(?:s)?[^\d]*(\d+)/i,
-    /Outbound[:\s]*(\d+)/i,
-    /Out\s+Calls?[:\s]*(\d+)/i
-  ]);
+    result.outbound = extractCountByMax([
+      /Outbound\s+Calls?[:\s-]*(\d+)/i,
+      /Outbound\s+Call(?:s)?[^\d]*(\d+)/i,
+      /Out\s*bound\s+Call(?:s)?[^\d]*(\d+)/i,
+      /Outbound[:\s]*(\d+)/i,
+      /Out\s+Calls?[:\s]*(\d+)/i
+    ]);
+  }
 
   return result;
 }
