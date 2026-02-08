@@ -1382,35 +1382,71 @@ export default function App() {
                     View Selected Data
                   </button>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {allUsers.filter(u => u.name.toLowerCase().includes(searchQuery.toLowerCase()) || u.empId.toLowerCase().includes(searchQuery.toLowerCase())).map(u => {
-                    const isSelected = selectedUsers.includes(u.id);
+                <div className="space-y-8">
+                  {(() => {
+                    const filteredUsers = allUsers.filter(u => u.name.toLowerCase().includes(searchQuery.toLowerCase()) || u.empId.toLowerCase().includes(searchQuery.toLowerCase()));
+                    const admins = filteredUsers.filter(u => u.role === 'admin');
+                    const users = filteredUsers.filter(u => u.role !== 'admin');
+
+                    const renderUserCard = (u: User) => {
+                      const isSelected = selectedUsers.includes(u.id);
+                      return (
+                        <div key={u.id} className={`p-6 bg-slate-50 dark:bg-slate-950 rounded-3xl flex items-center justify-between hover:ring-2 hover:ring-amber-500 transition-all cursor-pointer group shadow-sm ${isSelected ? 'ring-2 ring-amber-500 bg-amber-50 dark:bg-amber-950/20' : ''}`} onClick={() => { setAdminViewingUserId(u.id); setActiveTab('details'); }}>
+                          <div className="flex items-center gap-4">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                if (isSelected) {
+                                  setSelectedUsers(prev => prev.filter(id => id !== u.id));
+                                } else {
+                                  setSelectedUsers(prev => [...prev, u.id]);
+                                }
+                              }}
+                              className="w-4 h-4 text-amber-600 bg-slate-100 border-slate-300 rounded focus:ring-amber-500 dark:focus:ring-amber-600 dark:ring-offset-slate-800 focus:ring-2 dark:bg-slate-700 dark:border-slate-600"
+                            />
+                            <div className="w-12 h-12 bg-amber-600/10 text-amber-600 rounded-2xl flex items-center justify-center font-black text-sm group-hover:bg-amber-600 group-hover:text-white transition-all shadow-inner">{u.name.charAt(0)}</div>
+                            <div className="overflow-hidden"><p className="text-sm font-black dark:text-white uppercase truncate">{u.name}</p><p className="text-[11px] font-mono text-slate-400 uppercase tracking-tighter mt-1">{u.empId}</p>{showPasswords && <p className="text-xs font-mono text-slate-500 mt-1">Password: <span className="font-black uppercase">{u.password || '-'}</span></p>}</div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <button onClick={(ev) => { ev.stopPropagation(); if (!confirm('Delete user and all their entries?')) return; deleteUser(u.id); }} title="Delete User" className="p-2 bg-rose-50/20 rounded-xl text-rose-500 hover:bg-rose-500/10 transition-all"><TrashIcon size={14} /></button>
+                            <ChevronRightIcon size={18} className="text-slate-300 group-hover:translate-x-2 transition-all" />
+                          </div>
+                        </div>
+                      );
+                    };
+
                     return (
-                      <div key={u.id} className={`p-6 bg-slate-50 dark:bg-slate-950 rounded-3xl flex items-center justify-between hover:ring-2 hover:ring-amber-500 transition-all cursor-pointer group shadow-sm ${isSelected ? 'ring-2 ring-amber-500 bg-amber-50 dark:bg-amber-950/20' : ''}`} onClick={() => { setAdminViewingUserId(u.id); setActiveTab('details'); }}>
-                        <div className="flex items-center gap-4">
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={(e) => {
-                              e.stopPropagation();
-                              if (isSelected) {
-                                setSelectedUsers(prev => prev.filter(id => id !== u.id));
-                              } else {
-                                setSelectedUsers(prev => [...prev, u.id]);
-                              }
-                            }}
-                            className="w-4 h-4 text-amber-600 bg-slate-100 border-slate-300 rounded focus:ring-amber-500 dark:focus:ring-amber-600 dark:ring-offset-slate-800 focus:ring-2 dark:bg-slate-700 dark:border-slate-600"
-                          />
-                          <div className="w-12 h-12 bg-amber-600/10 text-amber-600 rounded-2xl flex items-center justify-center font-black text-sm group-hover:bg-amber-600 group-hover:text-white transition-all shadow-inner">{u.name.charAt(0)}</div>
-                          <div className="overflow-hidden"><p className="text-sm font-black dark:text-white uppercase truncate">{u.name}</p><p className="text-[11px] font-mono text-slate-400 uppercase tracking-tighter mt-1">{u.empId}</p>{showPasswords && <p className="text-xs font-mono text-slate-500 mt-1">Password: <span className="font-black uppercase">{u.password || '-'}</span></p>}</div>
+                      <>
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Admins</p>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase">{admins.length} admin{admins.length !== 1 ? 's' : ''}</span>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {admins.map(renderUserCard)}
+                            {admins.length === 0 && (
+                              <div className="col-span-full text-[10px] font-black uppercase tracking-widest text-slate-400 opacity-60">No admins match your search</div>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-3">
-                          <button onClick={(ev) => { ev.stopPropagation(); if (!confirm('Delete user and all their entries?')) return; deleteUser(u.id); }} title="Delete User" className="p-2 bg-rose-50/20 rounded-xl text-rose-500 hover:bg-rose-500/10 transition-all"><TrashIcon size={14} /></button>
-                          <ChevronRightIcon size={18} className="text-slate-300 group-hover:translate-x-2 transition-all" />
+
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600">Users</p>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase">{users.length} user{users.length !== 1 ? 's' : ''}</span>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {users.map(renderUserCard)}
+                            {users.length === 0 && (
+                              <div className="col-span-full text-[10px] font-black uppercase tracking-widest text-slate-400 opacity-60">No users match your search</div>
+                            )}
+                          </div>
                         </div>
-                      </div>
+                      </>
                     );
-                  })}
+                  })()}
                 </div>
               </div>
             </div>
