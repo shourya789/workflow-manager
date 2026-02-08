@@ -1548,26 +1548,6 @@ export default function App() {
                   <div className="flex-1 space-y-1">
                     <label className="text-[9px] font-black text-slate-400 uppercase ml-2">To</label>
                     <input type="date" value={masterDateEnd} onChange={(e) => setMasterDateEnd(e.target.value)} className="w-full p-3.5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold dark:text-white shadow-inner" />
-                    <div className="flex gap-2 pt-2">
-                      <button
-                        onClick={() => {
-                          const today = formatDateInput(new Date());
-                          setMasterDateStart(today);
-                          setMasterDateEnd(today);
-                        }}
-                        className="px-3 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-800 text-[9px] font-black uppercase"
-                        type="button"
-                      >
-                        Today
-                      </button>
-                      <button
-                        onClick={() => { setMasterDateStart(''); setMasterDateEnd(''); }}
-                        className="px-3 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-800 text-[9px] font-black uppercase"
-                        type="button"
-                      >
-                        Clear Dates
-                      </button>
-                    </div>
                   </div>
                   <div className="flex-1 space-y-1">
                     <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Status</label>
@@ -1587,6 +1567,27 @@ export default function App() {
                       <option value="Half Day">Half Day</option>
                     </select>
                   </div>
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mr-2">Quick Dates</span>
+                  <button
+                    onClick={() => {
+                      const today = formatDateInput(new Date());
+                      setMasterDateStart(today);
+                      setMasterDateEnd(today);
+                    }}
+                    className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase hover:bg-indigo-50 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                    type="button"
+                  >
+                    Today
+                  </button>
+                  <button
+                    onClick={() => { setMasterDateStart(''); setMasterDateEnd(''); }}
+                    className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase hover:bg-rose-50 hover:text-rose-600 dark:hover:text-rose-400 transition-colors"
+                    type="button"
+                  >
+                    Clear Dates
+                  </button>
                 </div>
 
                 <div className="overflow-x-auto rounded-[2.5rem] border dark:border-slate-800">
