@@ -613,6 +613,8 @@ export default function App() {
     };
   }, [entries]);
 
+  const formatDateInput = (date: Date) => date.toISOString().split('T')[0];
+
   const masterData = useMemo(() => {
     if (user?.role !== 'admin') return [];
     return masterDataServer;
@@ -1515,7 +1517,20 @@ export default function App() {
               <div className="flex justify-between items-center">
                 <div><h2 className="text-xl font-black uppercase dark:text-white">Master Property Stream</h2><p className="text-[10px] text-slate-400 font-bold mt-1">Enterprise audit of all extracted session properties (Excel Pattern)</p></div>
                 <div className="flex gap-2">
-                  <button onClick={() => exportDailyPerformanceReport(filteredMasterData)} className="bg-indigo-600 px-6 py-4 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-indigo-700 transition-all shadow-indigo-600/20"><FileSpreadsheetIcon size={16} className="mr-2 inline" /> Download Daily Report</button>
+                  <button
+                    onClick={() => {
+                      const today = formatDateInput(new Date());
+                      const hasDateFilter = Boolean(masterDateStart || masterDateEnd);
+                      const source = hasDateFilter ? filteredMasterData : masterDataServer;
+                      const daily = hasDateFilter
+                        ? source
+                        : source.filter(e => formatDateInput(new Date(e.date)) === today);
+                      exportDailyPerformanceReport(daily);
+                    }}
+                    className="bg-indigo-600 px-6 py-4 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-indigo-700 transition-all shadow-indigo-600/20"
+                  >
+                    <FileSpreadsheetIcon size={16} className="mr-2 inline" /> Download Daily Report
+                  </button>
                   <button onClick={() => exportConsolidatedExcel(masterDataServer)} className="bg-emerald-600 px-6 py-4 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-emerald-700 transition-all shadow-emerald-600/20"><FileSpreadsheetIcon size={16} className="mr-2 inline" /> Generate Team Report</button>
                 </div>
               </div>
@@ -1533,6 +1548,26 @@ export default function App() {
                   <div className="flex-1 space-y-1">
                     <label className="text-[9px] font-black text-slate-400 uppercase ml-2">To</label>
                     <input type="date" value={masterDateEnd} onChange={(e) => setMasterDateEnd(e.target.value)} className="w-full p-3.5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold dark:text-white shadow-inner" />
+                    <div className="flex gap-2 pt-2">
+                      <button
+                        onClick={() => {
+                          const today = formatDateInput(new Date());
+                          setMasterDateStart(today);
+                          setMasterDateEnd(today);
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-800 text-[9px] font-black uppercase"
+                        type="button"
+                      >
+                        Today
+                      </button>
+                      <button
+                        onClick={() => { setMasterDateStart(''); setMasterDateEnd(''); }}
+                        className="px-3 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-800 text-[9px] font-black uppercase"
+                        type="button"
+                      >
+                        Clear Dates
+                      </button>
+                    </div>
                   </div>
                   <div className="flex-1 space-y-1">
                     <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Status</label>

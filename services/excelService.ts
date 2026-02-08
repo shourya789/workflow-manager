@@ -94,7 +94,8 @@ export const exportDailyPerformanceReport = (entries: any[]) => {
         deadSec: 0,
         custTalkSec: 0,
         shiftType: e.shiftType, // Last shift type wins or we detect mixed
-        date: e.date // Keep track of date range
+        date: e.date, // Keep track of date range
+        reasons: [] as string[]
       };
     }
     aggregated[key].inbound += (e.inbound || 0);
@@ -106,6 +107,10 @@ export const exportDailyPerformanceReport = (entries: any[]) => {
     aggregated[key].dispoSec += timeToSeconds(e.dispo);
     aggregated[key].deadSec += timeToSeconds(e.dead);
     aggregated[key].custTalkSec += timeToSeconds(e.customerTalk);
+    if (e.reason && typeof e.reason === 'string') {
+      const trimmed = e.reason.trim();
+      if (trimmed) aggregated[key].reasons.push(trimmed);
+    }
   });
 
   // 2. Prepare Data Rows with Styling
@@ -130,10 +135,12 @@ export const exportDailyPerformanceReport = (entries: any[]) => {
     const totalPauseSec = u.pauseSec + u.dispoSec + u.deadSec;
     const totalPauseStr = secondsToTime(totalPauseSec);
 
-    // Logic for Remark (Simple detection)
-    let remark = "";
-    if (u.shiftType === 'Half Day') remark = "Half Day";
-    // If login > 9 hours and starts late? (Simplified for now based on ShiftType)
+    const uniqueReasons = Array.from(new Set(u.reasons));
+    const remarkParts = uniqueReasons.length ? uniqueReasons : [];
+    if (u.shiftType === 'Half Day' && !remarkParts.includes('Half Day')) {
+      remarkParts.push('Half Day');
+    }
+    const remark = remarkParts.join(' | ');
 
     rows.push({
       name: u.name,
@@ -148,7 +155,7 @@ export const exportDailyPerformanceReport = (entries: any[]) => {
       customer: secondsToTime(u.custTalkSec),
       totalInbound: u.inbound,
       totalOutbound: u.outbound,
-      remark: remark,
+      remark: remark || "",
 
       // For styling logic
       isTotalPauseExceeded: totalPauseSec > (u.shiftType === 'Half Day' ? 2700 : 7200) // 45m or 2h
