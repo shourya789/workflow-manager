@@ -45,10 +45,71 @@ const mapEntryForExcel = (entry: TimeData, userName: string, empId: string) => {
   };
 };
 
+const applyPerformanceStyles = (ws: XLSX.WorkSheet, data: Record<string, any>[], headers: string[]) => {
+  const range = XLSX.utils.decode_range(ws['!ref'] || "A1:A1");
+  const inboundIdx = headers.indexOf("Inbound Calls");
+  const totalBreakIdx = headers.indexOf("Total Break Time");
+  const breakCapIdx = headers.indexOf("Break Cap Status");
+  const notesIdx = headers.indexOf("Notes/Reason");
+
+  const headerStyle = {
+    fill: { fgColor: { rgb: "FFFF00" } },
+    font: { bold: true, name: "Calibri", sz: 11 },
+    border: { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } },
+    alignment: { horizontal: "center", vertical: "center" }
+  };
+
+  for (let R = range.s.r; R <= range.e.r; ++R) {
+    for (let C = range.s.c; C <= range.e.c; ++C) {
+      const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+      if (!ws[cellAddress]) continue;
+
+      if (R === 0) {
+        ws[cellAddress].s = headerStyle;
+        continue;
+      }
+
+      const rowData = data[R - 1];
+      const cellStyle: any = {
+        font: { name: "Calibri", sz: 11 },
+        border: { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } },
+        alignment: { horizontal: "center" }
+      };
+
+      if (C === inboundIdx) {
+        const val = Number(rowData?.["Inbound Calls"] || 0);
+        if (val >= 80) cellStyle.fill = { fgColor: { rgb: "90EE90" } };
+        else if (val >= 60) cellStyle.fill = { fgColor: { rgb: "FFA500" } };
+        else cellStyle.fill = { fgColor: { rgb: "FF6B6B" } };
+      }
+
+      if (C === totalBreakIdx && breakCapIdx !== -1) {
+        const breakCap = rowData?.["Break Cap Status"];
+        if (breakCap === "EXCEEDED") {
+          cellStyle.fill = { fgColor: { rgb: "FF0000" } };
+          cellStyle.font = { color: { rgb: "FFFFFF" }, bold: true };
+        }
+      }
+
+      if (C === notesIdx) {
+        const notes = String(rowData?.["Notes/Reason"] || "");
+        if (notes.includes('Half Day') || notes.includes('Night Shift')) {
+          cellStyle.fill = { fgColor: { rgb: "FFFF00" } };
+          cellStyle.font = { bold: true };
+        }
+      }
+
+      ws[cellAddress].s = cellStyle;
+    }
+  }
+};
+
 export const exportToExcel = (entries: TimeData[], user: User) => {
   if (!entries.length) return alert("No data to export");
   const data = entries.map(entry => mapEntryForExcel(entry, user.name, user.empId));
-  const worksheet = XLSX.utils.json_to_sheet(data);
+  const headers = Object.keys(data[0] || {});
+  const worksheet = XLSX.utils.json_to_sheet(data, { header: headers });
+  applyPerformanceStyles(worksheet, data, headers);
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Performance_Audit");
   XLSX.writeFile(workbook, `WF_Audit_${user.empId}_${new Date().toISOString().split('T')[0]}.xlsx`);
@@ -59,7 +120,9 @@ export const exportConsolidatedExcel = (allEntries: any[]) => {
   const data = allEntries.map(entry =>
     mapEntryForExcel(entry, entry.userName || "N/A", entry.userId || "N/A")
   );
-  const worksheet = XLSX.utils.json_to_sheet(data);
+  const headers = Object.keys(data[0] || {});
+  const worksheet = XLSX.utils.json_to_sheet(data, { header: headers });
+  applyPerformanceStyles(worksheet, data, headers);
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Master_Property_Log");
   XLSX.writeFile(workbook, `MASTER_AUDIT_REPORT_4K_${new Date().toISOString().split('T')[0]}.xlsx`);
