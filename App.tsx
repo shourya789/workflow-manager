@@ -752,6 +752,17 @@ export default function App() {
 
   const formatDateInput = (date: Date) => date.toISOString().split('T')[0];
 
+  const getSearchTokens = (value: string) => {
+    const trimmed = value.trim().toLowerCase();
+    if (!trimmed) return [] as string[];
+    const match = trimmed.match(/^(.*?)\s*\((.*?)\)\s*$/);
+    if (match) {
+      const tokens = [match[1].trim(), match[2].trim()].filter(Boolean);
+      return tokens.length ? tokens : [trimmed];
+    }
+    return [trimmed];
+  };
+
   const computeEntryScore = (entry: TimeData) => {
     const talkSec = timeToSeconds(entry.talk || '00:00:00');
     const customerTalkSec = timeToSeconds(entry.customerTalk || '00:00:00');
@@ -1124,6 +1135,54 @@ export default function App() {
     setKpiModalOpen(true);
   };
 
+  const downloadKpiModalRows = () => {
+    if (!kpiModalRows.length) {
+      pushToast('No records to download', 'warning');
+      return;
+    }
+
+    const headers = [
+      'Name',
+      'Emp ID',
+      ...(kpiModalMeta.hasCount ? ['Count'] : []),
+      ...(kpiModalMeta.hasDate ? ['Date'] : []),
+      ...(kpiModalMeta.hasShift ? ['Shift'] : []),
+      ...(kpiModalMeta.hasInbound ? ['Inbound'] : []),
+      ...(kpiModalMeta.hasOutbound ? ['Outbound'] : []),
+      ...(kpiModalMeta.hasLogin ? ['Login'] : []),
+      ...(kpiModalMeta.hasBreak ? ['Break'] : [])
+    ];
+
+    const escapeCsv = (value: string | number) => {
+      const text = String(value ?? '');
+      if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
+      return text;
+    };
+
+    const rows = kpiModalRows.map(row => {
+      const columns: Array<string | number> = [row.name, row.empId];
+      if (kpiModalMeta.hasCount) columns.push(row.count ?? '-');
+      if (kpiModalMeta.hasDate) columns.push(row.date ? new Date(row.date).toLocaleDateString() : '-');
+      if (kpiModalMeta.hasShift) columns.push(row.shiftType || '-');
+      if (kpiModalMeta.hasInbound) columns.push(row.inbound ?? 0);
+      if (kpiModalMeta.hasOutbound) columns.push(row.outbound ?? 0);
+      if (kpiModalMeta.hasLogin) columns.push(typeof row.loginSec === 'number' ? secondsToTime(row.loginSec) : '-');
+      if (kpiModalMeta.hasBreak) columns.push(typeof row.breakSec === 'number' ? secondsToTime(row.breakSec) : '-');
+      return columns.map(escapeCsv).join(',');
+    });
+
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `kpi_${kpiModalTitle.replace(/\s+/g, '_').toLowerCase()}_${formatDateInput(new Date())}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
+
   const buildEntryRows = (entries: TimeData[]) => {
     return entries.map(entry => ({
       id: entry.id,
@@ -1266,14 +1325,21 @@ export default function App() {
     }
 
     if (searchTerm) {
-      const q = searchTerm;
-      result = result.filter(d =>
-        d.userName.toLowerCase().includes(q) ||
-        d.userId.toLowerCase().includes(q) ||
-        formatDateInput(new Date(d.date)).includes(q) ||
-        new Date(d.date).toLocaleDateString('en-GB').includes(q) ||
-        (d.reason || '').toLowerCase().includes(q)
-      );
+      const tokens = getSearchTokens(searchTerm);
+      result = result.filter(d => {
+        const name = (d.userName || '').toLowerCase();
+        const id = (d.userId || '').toLowerCase();
+        const dateIso = formatDateInput(new Date(d.date));
+        const dateGb = new Date(d.date).toLocaleDateString('en-GB');
+        const reason = (d.reason || '').toLowerCase();
+        return tokens.some(token =>
+          name.includes(token) ||
+          id.includes(token) ||
+          dateIso.includes(token) ||
+          dateGb.includes(token) ||
+          reason.includes(token)
+        );
+      });
     }
 
     if (searchOverride) {
@@ -1281,11 +1347,12 @@ export default function App() {
     }
 
     if (masterAgentFilter) {
-      const q = masterAgentFilter.toLowerCase();
-      result = result.filter(d =>
-        d.userName.toLowerCase().includes(q) ||
-        d.userId.toLowerCase().includes(q)
-      );
+      const tokens = getSearchTokens(masterAgentFilter);
+      result = result.filter(d => {
+        const name = (d.userName || '').toLowerCase();
+        const id = (d.userId || '').toLowerCase();
+        return tokens.some(token => name.includes(token) || id.includes(token));
+      });
     }
 
     if (masterStatusFilter !== 'All') {
@@ -1864,9 +1931,19 @@ export default function App() {
                 <h3 className="text-xl font-black dark:text-white uppercase tracking-tight">{kpiModalTitle}</h3>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{kpiModalRows.length} Records</p>
               </div>
-              <button onClick={() => setKpiModalOpen(false)} className="p-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-500">
-                <XIcon size={16} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={downloadKpiModalRows}
+                  className="p-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-indigo-600"
+                  title="Download"
+                  type="button"
+                >
+                  <DownloadIcon size={16} />
+                </button>
+                <button onClick={() => setKpiModalOpen(false)} className="p-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-500">
+                  <XIcon size={16} />
+                </button>
+              </div>
             </div>
 
             {kpiModalRows.length === 0 ? (
@@ -2191,17 +2268,17 @@ export default function App() {
 
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
                     {[
-                      { label: 'Inbound Calls', rows: userKpiData.inboundEntries },
-                      { label: 'Outbound Calls', rows: userKpiData.outboundEntries },
-                      { label: 'Half Days', rows: userKpiData.halfDayEntries },
-                      { label: 'Full Days', rows: userKpiData.fullDayEntries },
-                      { label: 'Under Shift Full Day', rows: userKpiData.underShiftFullDayEntries },
-                      { label: 'Under Shift Half Day', rows: userKpiData.underShiftHalfDayEntries },
-                      { label: 'Total Login Days', rows: userKpiData.totalLoginEntries },
-                      { label: 'Needs Attention Days', rows: userKpiData.needsAttentionEntries },
-                      { label: 'Top Performers Days', rows: userKpiData.topPerformerEntries },
-                      { label: 'No of OTs', rows: userKpiData.otEntries },
-                      { label: 'Break Exceeded Users', rows: userKpiData.breakExceededEntries }
+                      { label: 'Inbound Calls', rows: userKpiData.inboundEntries, valueClass: 'text-indigo-600' },
+                      { label: 'Outbound Calls', rows: userKpiData.outboundEntries, valueClass: 'text-emerald-600' },
+                      { label: 'Half Days', rows: userKpiData.halfDayEntries, valueClass: 'text-amber-600' },
+                      { label: 'Full Days', rows: userKpiData.fullDayEntries, valueClass: 'text-slate-900 dark:text-white' },
+                      { label: 'Under Shift Full Day', rows: userKpiData.underShiftFullDayEntries, valueClass: 'text-rose-600' },
+                      { label: 'Under Shift Half Day', rows: userKpiData.underShiftHalfDayEntries, valueClass: 'text-orange-600' },
+                      { label: 'Total Login Days', rows: userKpiData.totalLoginEntries, valueClass: 'text-indigo-600' },
+                      { label: 'Needs Attention Days', rows: userKpiData.needsAttentionEntries, valueClass: 'text-rose-600' },
+                      { label: 'Top Performers Days', rows: userKpiData.topPerformerEntries, valueClass: 'text-emerald-600' },
+                      { label: 'No of OTs', rows: userKpiData.otEntries, valueClass: 'text-amber-600' },
+                      { label: 'Break Exceeded Users', rows: userKpiData.breakExceededEntries, valueClass: 'text-rose-600' }
                     ].map(card => (
                       <button
                         key={card.label}
@@ -2212,7 +2289,7 @@ export default function App() {
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">{card.label}</p>
-                            <div className="text-2xl font-black text-slate-900 dark:text-white mt-2">{card.rows.length}</div>
+                            <div className={`text-2xl font-black mt-2 ${card.valueClass}`}>{card.rows.length}</div>
                           </div>
                           <button
                             onClick={(event) => {
