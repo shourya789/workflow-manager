@@ -560,7 +560,7 @@ export default function App() {
   const otEligibilitySec = 4.5 * 3600;
   const extraSec = Math.max(0, loginSec - shiftBase);
   const emergencyOtEligible = emergencyOt && loginSec >= 3600;
-  const otTrigger = !emergencyOt && loginSec >= otEligibilitySec && extraSec > 3600;
+  const otTrigger = loginSec >= otEligibilitySec && extraSec > 3600;
   const otSec = emergencyOtEligible ? loginSec : otTrigger ? extraSec : 0;
 
   const loginRemainingSec = Math.max(0, shiftBase - loginSec);
@@ -613,17 +613,13 @@ export default function App() {
       return;
     }
 
-    if (emergencyOt && loginSec < 3600) {
-      pushToast('Emergency OT requires at least 1 hour of login time.', 'warning');
-      return;
-    }
-
     const targetUserId = adminViewingUserId || user.id;
-    const calculatedStatus: EntryStatus = emergencyOt ? 'Approved' : (applyForOT) ? 'Pending' : 'N/A';
+    const effectiveEmergencyOt = emergencyOt && !!applyForOT;
+    const calculatedStatus: EntryStatus = (applyForOT) ? 'Pending' : 'N/A';
 
     if (editingId) {
       // update on server
-      const payload = { userId: targetUserId, entryId: editingId, entry: { ...formData, shiftType, status: calculatedStatus, emergencyOt } };
+      const payload = { userId: targetUserId, entryId: editingId, entry: { ...formData, shiftType, status: calculatedStatus, emergencyOt: effectiveEmergencyOt } };
       try {
         const r = await fetch('/api/storage?action=updateEntry', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         const b = await r.json();
@@ -641,7 +637,7 @@ export default function App() {
         shiftType,
         ...formData,
         status: calculatedStatus,
-        emergencyOt
+        emergencyOt: effectiveEmergencyOt
       };
       try {
         const r = await fetch('/api/storage?action=addEntry', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: targetUserId, entry: newEntry }) });
@@ -658,7 +654,16 @@ export default function App() {
   };
 
   const saveToHistory = () => {
-    if (!emergencyOt && otTrigger && !showOTModal) {
+    if (emergencyOt) {
+      if (loginSec < 3600) {
+        pushToast('Emergency OT requires at least 1 hour of login time.', 'warning');
+        return;
+      }
+      if (!showOTModal) {
+        setShowOTModal(true);
+        return;
+      }
+    } else if (otTrigger && !showOTModal) {
       setShowOTModal(true);
       return;
     }
@@ -853,8 +858,10 @@ export default function App() {
   const pendingOtApprovals = useMemo(() => {
     const eligibilitySec = 4.5 * 3600;
     return masterData.filter(d => {
-      if (d.emergencyOt) return false;
       const loginSec = timeToSeconds(d.currentLogin || '00:00:00');
+      if (d.emergencyOt) {
+        return loginSec >= 3600 && d.status === 'Pending';
+      }
       const shiftBase = d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
       const extra = loginSec - shiftBase;
       if (!(loginSec >= eligibilitySec && extra > 3600)) return false;
@@ -1033,7 +1040,12 @@ export default function App() {
 
     const topPerformers = derived.filter(item => item.entry.inbound > 65 && item.breakSec < 2 * 3600);
 
-    const pendingOt = derived.filter(item => item.loginSec >= 4.5 * 3600 && (item.loginSec - item.shiftBase) > 3600 && item.entry.status === 'Pending');
+    const pendingOt = derived.filter(item => {
+      if (item.entry.emergencyOt) {
+        return item.loginSec >= 3600 && item.entry.status === 'Pending';
+      }
+      return item.loginSec >= 4.5 * 3600 && (item.loginSec - item.shiftBase) > 3600 && item.entry.status === 'Pending';
+    });
 
     const uniqueUsers = (items: typeof derived) => new Set(items.map(i => i.entry.userId)).size;
     const breakExceededUsers = new Set(derived.filter(item => item.breakSec > 2 * 3600).map(item => item.entry.userId)).size;
@@ -1821,8 +1833,8 @@ export default function App() {
   const otLogEntries = useMemo(() => {
     const eligibilitySec = 4.5 * 3600;
     return entries.filter(e => {
-      if (e.emergencyOt) return false;
       const loginSec = timeToSeconds(e.currentLogin || '00:00:00');
+      if (e.emergencyOt) return loginSec >= 3600;
       const shiftTarget = e.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
       const extra = loginSec - shiftTarget;
       return loginSec >= eligibilitySec && extra > 3600;
@@ -2555,14 +2567,16 @@ export default function App() {
                       {otLogEntries.map(e => {
                         const lSec = timeToSeconds(e.currentLogin);
                         const sBase = e.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+                        const isEmergency = !!e.emergencyOt;
+                        const otValue = isEmergency ? lSec : Math.max(0, lSec - sBase);
                         return (
                           <tr key={e.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
                             <td className="px-6 py-6">
                               <span className="font-black dark:text-slate-200">{new Date(e.date).toLocaleDateString()}</span>
-                              <span className="block text-[10px] text-slate-400 font-black uppercase mt-0.5">{e.shiftType}</span>
+                              <span className={`block text-[10px] font-black uppercase mt-0.5 ${isEmergency ? 'text-amber-500' : 'text-slate-400'}`}>{isEmergency ? 'Emergency OT' : e.shiftType}</span>
                             </td>
                             <td className="px-6 py-6 font-mono font-black dark:text-slate-400">{e.currentLogin}</td>
-                            <td className="px-6 py-6 text-center text-amber-600 font-black font-mono">{secondsToTime(lSec - sBase)}</td>
+                            <td className="px-6 py-6 text-center text-amber-600 font-black font-mono">{secondsToTime(otValue)}</td>
                             <td className="px-6 py-6 text-center">
                               <StatusBadge status={e.status} />
                             </td>
@@ -3160,7 +3174,8 @@ export default function App() {
                         const tBrk = timeToSeconds(log.pause) + timeToSeconds(log.dispo) + timeToSeconds(log.dead);
                         const bLimit = log.shiftType === 'Full Day' ? 7200 : 2700;
                         const bExceed = tBrk > bLimit;
-                        const isOvertime = lSec > sBase;
+                        const isEmergency = !!log.emergencyOt;
+                        const isOvertime = isEmergency ? lSec >= 3600 : lSec > sBase;
                         const isRejected = log.status === 'Rejected';
                         const isPending = log.status === 'Pending';
                         const rowClass = bExceed || isOvertime || isRejected
@@ -3168,17 +3183,18 @@ export default function App() {
                           : isPending
                             ? 'bg-amber-50/60 dark:bg-amber-950/20'
                             : '';
+                        const displayName = log.userName || log.userId;
 
                         return (
                           <tr key={log.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors ${rowClass}`}>
                             <td className="px-4 py-5">
                               <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-black text-xs shadow-sm">{log.userName?.charAt(0)}</div>
+                                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-black text-xs shadow-sm">{(displayName || 'U').charAt(0)}</div>
                                 <button
                                   onClick={() => setDrillUserId(log.userId)}
                                   className="text-left"
                                 >
-                                  <div className="font-black dark:text-slate-200 uppercase">{log.userName}</div>
+                                  <div className="font-black dark:text-slate-200 uppercase">{displayName}</div>
                                   <div className="text-[11px] font-mono text-slate-400 mt-0.5 uppercase">{log.userId}</div>
                                 </button>
                               </div>
@@ -3201,7 +3217,11 @@ export default function App() {
                               <div className="flex flex-col items-center gap-2">
                                 <StatusBadge status={log.status} />
                                 {bExceed && <span className="text-[10px] font-black text-rose-600 uppercase">Break Violation</span>}
-                                {isOvertime && <span className="text-[10px] font-black text-amber-600 uppercase">OT: {secondsToTime(lSec - sBase)}</span>}
+                                {isOvertime && (
+                                  <span className="text-[10px] font-black text-amber-600 uppercase">
+                                    {isEmergency ? `Emergency OT: ${secondsToTime(lSec)}` : `OT: ${secondsToTime(lSec - sBase)}`}
+                                  </span>
+                                )}
                               </div>
                             </td>
                             <td className="px-4 py-5 text-right">
@@ -3347,13 +3367,16 @@ export default function App() {
                       {pendingOtApprovals.map(log => {
                         const lSec = timeToSeconds(log.currentLogin || '00:00:00');
                         const sBase = log.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+                        const isEmergency = !!log.emergencyOt;
+                        const otValue = isEmergency ? lSec : Math.max(0, lSec - sBase);
+                        const displayName = log.userName || log.userId;
                         return (
                           <tr key={log.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
                             <td className="px-2 py-2 align-top">
                               <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-black text-xs shadow-sm">{log.userName?.charAt(0)}</div>
+                                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-black text-xs shadow-sm">{(displayName || 'U').charAt(0)}</div>
                                 <div className="min-w-0">
-                                  <div className="font-black dark:text-slate-200 uppercase truncate">{log.userName}</div>
+                                  <div className="font-black dark:text-slate-200 uppercase truncate">{displayName}</div>
                                   <div className="text-[10px] font-mono text-slate-400 mt-0.5 uppercase truncate">{log.userId}</div>
                                 </div>
                               </div>
@@ -3362,9 +3385,9 @@ export default function App() {
                               <div className="font-bold text-slate-600 dark:text-slate-400 text-sm">{new Date(log.date).toLocaleDateString('en-GB')}</div>
                               <div className="text-[9px] text-slate-400 font-bold uppercase">{new Date(log.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                             </td>
-                            <td className="px-2 py-2 align-top"><span className="text-[10px] text-indigo-500 font-black uppercase">{log.shiftType}</span></td>
+                            <td className="px-2 py-2 align-top"><span className={`text-[10px] font-black uppercase ${isEmergency ? 'text-amber-500' : 'text-indigo-500'}`}>{isEmergency ? 'Emergency OT' : log.shiftType}</span></td>
                             <td className="px-2 py-2 align-top font-mono font-black text-indigo-500">{log.currentLogin}</td>
-                            <td className="px-2 py-2 align-top font-mono font-black text-amber-600">{secondsToTime(Math.max(0, lSec - sBase))}</td>
+                            <td className="px-2 py-2 align-top font-mono font-black text-amber-600">{secondsToTime(otValue)}</td>
                             <td className="px-2 py-2 align-top text-[12px] text-slate-600 break-words whitespace-normal">{log.reason ? (log.reason.length > 80 ? log.reason.slice(0, 77) + '...' : log.reason) : '-'}</td>
                             <td className="px-2 py-2 align-top text-right">
                               <div className="flex items-center justify-end gap-2">
@@ -3478,14 +3501,15 @@ export default function App() {
                         const sBase = log.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
                         const isEmergency = !!log.emergencyOt;
                         const otValue = isEmergency ? lSec : Math.max(0, lSec - sBase);
+                        const displayName = log.userName || log.userId;
 
                         return (
                           <tr key={log.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
                             <td className="px-2 py-2 align-top">
                               <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-black text-xs shadow-sm">{log.userName?.charAt(0)}</div>
+                                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-black text-xs shadow-sm">{(displayName || 'U').charAt(0)}</div>
                                 <div className="min-w-0">
-                                  <div className="font-black dark:text-slate-200 uppercase truncate">{log.userName}</div>
+                                  <div className="font-black dark:text-slate-200 uppercase truncate">{displayName}</div>
                                   <div className="text-[10px] font-mono text-slate-400 mt-0.5 uppercase truncate">{log.userId}</div>
                                 </div>
                               </div>
