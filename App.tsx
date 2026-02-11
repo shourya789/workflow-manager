@@ -92,7 +92,7 @@ export default function App() {
   const [isParsing, setIsParsing] = useState(false);
   const [rawText, setRawText] = useState('');
   const [parseFailures, setParseFailures] = useState(0);
-  const [activeTab, setActiveTab] = useState<'calc' | 'details' | 'admin' | 'all-logs' | 'ot-log' | 'ot-admin' | 'users' | 'migrations'>('calc');
+  const [activeTab, setActiveTab] = useState<'calc' | 'details' | 'admin' | 'admin-dashboard' | 'all-logs' | 'ot-log' | 'ot-admin' | 'users' | 'migrations'>('calc');
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [shiftType, setShiftType] = useState<ShiftType>('Full Day');
   const [showOTModal, setShowOTModal] = useState(false);
@@ -129,6 +129,9 @@ export default function App() {
   const [actionedEntry, setActionedEntry] = useState<TimeData | null>(null);
   const [approvalModalOpen, setApprovalModalOpen] = useState(false);
   const [approvalReason, setApprovalReason] = useState('');
+  const [adminDashboardRange, setAdminDashboardRange] = useState<'1d' | '2d' | '7d' | '30d' | '365d'>('1d');
+  const [parsedSignature, setParsedSignature] = useState<string | null>(null);
+  const [lastCommittedSignature, setLastCommittedSignature] = useState<string | null>(null);
 
   // Pagination state for admin tables
   const [masterCurrentPage, setMasterCurrentPage] = useState(1);
@@ -311,7 +314,7 @@ export default function App() {
     if (session) {
       const parsedUser = JSON.parse(session);
       setUser(parsedUser);
-      if (parsedUser.role === 'admin') setActiveTab('admin');
+      if (parsedUser.role === 'admin') setActiveTab('admin-dashboard');
     }
     const savedTheme = localStorage.getItem('theme') as 'light' | 'dark';
     if (savedTheme) setTheme(savedTheme || 'light');
@@ -425,7 +428,7 @@ export default function App() {
           const found = body.user;
           setUser(found);
           localStorage.setItem('current_session', JSON.stringify(found));
-          if (found.role === 'admin') { setActiveTab('admin'); fetchMasterData(); }
+          if (found.role === 'admin') { setActiveTab('admin-dashboard'); fetchMasterData(); }
           else setActiveTab('calc');
         } else {
           if (authRole === 'admin') { pushToast('Admin registration disabled. Default admin: TEAM / Pooja852', 'info'); setAuthView('login'); return; }
@@ -463,6 +466,8 @@ export default function App() {
           loginTimestamp: parsed.loginTimestamp || prev.loginTimestamp,
           logoutTimestamp: parsed.logoutTimestamp || prev.logoutTimestamp
         }));
+        const signature = JSON.stringify({ parsed, raw: rawText.trim() });
+        setParsedSignature(signature);
         setRawText('');
       }
     } catch (e: any) {
@@ -486,6 +491,40 @@ export default function App() {
 
   const commitRecord = async (applyForOT?: boolean) => {
     if (!user) return;
+    const allZero = [
+      formData.pause,
+      formData.dispo,
+      formData.dead,
+      formData.currentLogin,
+      formData.loginTimestamp,
+      formData.logoutTimestamp,
+      formData.wait,
+      formData.talk,
+      formData.hold,
+      formData.customerTalk
+    ].every(v => v === '00:00:00') &&
+      (formData.inbound || 0) === 0 &&
+      (formData.outbound || 0) === 0 &&
+      (!formData.reason || !formData.reason.trim());
+    const isNewUserEntry = !editingId && user.role === 'user';
+
+    if (isNewUserEntry) {
+      if (allZero) {
+        pushToast('Paste and extract data before committing.', 'warning');
+        return;
+      }
+
+      if (!parsedSignature) {
+        pushToast('Commit is allowed only after you paste and extract once.', 'warning');
+        return;
+      }
+
+      if (parsedSignature && parsedSignature === lastCommittedSignature) {
+        pushToast('This entry was already committed. Paste and extract new data to add again.', 'info');
+        return;
+      }
+    }
+
     const targetUserId = adminViewingUserId || user.id;
     const calculatedStatus: EntryStatus = (applyForOT) ? 'Pending' : 'N/A';
 
@@ -516,6 +555,7 @@ export default function App() {
         if (!r.ok) throw new Error(b.error || 'Add failed');
         setEntries(b.entries || []);
         if (user?.role === 'admin') fetchMasterData();
+        if (isNewUserEntry) setLastCommittedSignature(parsedSignature);
       } catch (e: any) { pushToast(`Failed to add entry: ${e.message}`, 'error'); }
     }
     setFormData(INITIAL_FORM_STATE);
@@ -819,6 +859,16 @@ export default function App() {
     );
   }, [otEntries, otAdminSearchQuery]);
 
+  const getRangeBounds = (range: '1d' | '2d' | '7d' | '30d' | '365d') => {
+    const end = new Date();
+    end.setHours(23, 59, 59, 999);
+    const start = new Date(end);
+    const days = range === '1d' ? 1 : range === '2d' ? 2 : range === '7d' ? 7 : range === '30d' ? 30 : 365;
+    start.setDate(start.getDate() - (days - 1));
+    start.setHours(0, 0, 0, 0);
+    return { start, end };
+  };
+
   const adminDashboardStats = useMemo(() => {
     if (user?.role !== 'admin') {
       return {
@@ -851,7 +901,11 @@ export default function App() {
       };
     }
 
-    const data = masterDataServer || [];
+    const { start, end } = getRangeBounds(adminDashboardRange);
+    const data = (masterDataServer || []).filter(d => {
+      const entryDate = new Date(d.date);
+      return entryDate >= start && entryDate <= end;
+    });
     const statusCounts: Record<EntryStatus, number> = { Approved: 0, Pending: 0, Rejected: 0, 'N/A': 0 };
     const shiftCounts: Record<ShiftType, number> = { 'Full Day': 0, 'Half Day': 0 };
     const usersMap = new Map<string, {
@@ -956,7 +1010,7 @@ export default function App() {
       topPerformer,
       bottomPerformer
     };
-  }, [masterDataServer, user]);
+  }, [adminDashboardRange, masterDataServer, user]);
 
   const drillEntries = useMemo(() => {
     if (!drillUserId) return [] as TimeData[];
@@ -1002,6 +1056,11 @@ export default function App() {
       setMasterSortBy('productivity');
     }
   }, [user]);
+
+  useEffect(() => {
+    if (!rawText || !rawText.trim()) return;
+    setParsedSignature(null);
+  }, [rawText]);
 
   // Reset to page 1 when filters change (better UX)
   useEffect(() => {
@@ -1315,13 +1374,18 @@ export default function App() {
         <nav className="flex-1 space-y-1">
           {user.role === 'admin' && (
             <>
+              <button onClick={() => { setAdminViewingUserId(null); setActiveTab('admin-dashboard'); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'admin-dashboard' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:bg-white/5'}`}><LayoutGridIcon size={16} /> Admin Dashboard</button>
               <button onClick={() => { setAdminViewingUserId(null); setActiveTab('admin'); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'admin' && !adminViewingUserId ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:bg-white/5'}`}><UsersIcon size={16} /> Team Hub</button>
               <button onClick={() => { setAdminViewingUserId(null); setActiveTab('all-logs'); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'all-logs' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:bg-white/5'}`}><LayersIcon size={16} /> Master Stream</button>
             </>
           )}
-          <button onClick={() => setActiveTab('calc')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'calc' ? 'bg-indigo-600' : 'text-slate-400 hover:bg-white/5'}`}><ClockIcon size={16} /> Dashboard</button>
-          <button onClick={() => setActiveTab('details')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'details' ? 'bg-indigo-600' : 'text-slate-400 hover:bg-white/5'}`}><LayoutGridIcon size={16} /> Sequential Data</button>
-          <button onClick={() => setActiveTab('ot-log')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'ot-log' ? 'bg-indigo-600' : 'text-slate-400 hover:bg-white/5'}`}><ZapIcon size={16} /> OT Records</button>
+          {user.role !== 'admin' && (
+            <>
+              <button onClick={() => setActiveTab('calc')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'calc' ? 'bg-indigo-600' : 'text-slate-400 hover:bg-white/5'}`}><ClockIcon size={16} /> Dashboard</button>
+              <button onClick={() => setActiveTab('details')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'details' ? 'bg-indigo-600' : 'text-slate-400 hover:bg-white/5'}`}><LayoutGridIcon size={16} /> Sequential Data</button>
+              <button onClick={() => setActiveTab('ot-log')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'ot-log' ? 'bg-indigo-600' : 'text-slate-400 hover:bg-white/5'}`}><ZapIcon size={16} /> OT Records</button>
+            </>
+          )}
         </nav>
         <div className="mt-auto pt-6 space-y-2">
           <button onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} className="w-full flex items-center gap-3 px-4 py-2 text-[10px] font-bold uppercase text-slate-500 hover:text-white">{theme === 'light' ? <MoonIcon size={14} /> : <SunIcon size={14} />} Theme</button>
@@ -1691,74 +1755,28 @@ export default function App() {
             </div>
           )}
 
-          {activeTab === 'admin' && (
+          {activeTab === 'admin-dashboard' && (
             <div className="space-y-6 animate-in fade-in duration-500">
-              <div className="flex justify-between items-center">
-                <h2 className="text-xl font-black uppercase dark:text-white">Team Hub</h2>
-                <div className="flex items-center gap-3">
-                  <button onClick={() => exportConsolidatedExcel(masterDataServer)} className="bg-amber-600 px-6 py-4 text-white rounded-xl font-black text-[10px] uppercase shadow-xl hover:bg-amber-700 transition-all">Master Analysis Report</button>
-                  <button onClick={() => { fetchMigrations(); setActiveTab('migrations'); }} className="bg-slate-200 dark:bg-slate-800 px-4 py-3 rounded-xl text-[10px] font-black uppercase">Migration Reports</button>
-                  <button onClick={() => setShowMigrationModal(true)} disabled={isMigrating} className="bg-emerald-600 px-4 py-3 rounded-xl text-[10px] font-black uppercase text-white">{isMigrating ? 'Migrating...' : 'Run migration now'}</button>
-                  <button onClick={() => setShowPasswords(p => !p)} className="bg-slate-200 dark:bg-slate-800 px-4 py-3 rounded-xl text-[10px] font-black uppercase">{showPasswords ? 'Hide Passwords' : 'Show Passwords'}</button>
+              <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-black uppercase dark:text-white">Admin Dashboard</h2>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">KPI summary, compliance, and drill-down</p>
                 </div>
-              </div>
-
-              <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border dark:border-slate-800 shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Admin Quick Actions</p>
-                    <p className="text-[9px] font-bold text-slate-400 mt-1">Jump straight to daily review tasks</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={() => { setActiveTab('all-logs'); }}
-                      className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase"
-                    >
-                      Open Master Stream
-                    </button>
-                    <button
-                      onClick={() => {
-                        setMasterBreakViolationFilter('Yes');
-                        setMasterOvertimeFilter('All');
-                        setMasterStatusFilter('All');
-                        setActiveTab('all-logs');
-                      }}
-                      className="px-4 py-2 rounded-2xl bg-rose-50 text-rose-600 text-[9px] font-black uppercase"
-                    >
-                      Review Break Violations
-                    </button>
-                    <button
-                      onClick={() => {
-                        setMasterOvertimeFilter('Yes');
-                        setMasterBreakViolationFilter('All');
-                        setMasterStatusFilter('All');
-                        setActiveTab('all-logs');
-                      }}
-                      className="px-4 py-2 rounded-2xl bg-amber-50 text-amber-600 text-[9px] font-black uppercase"
-                    >
-                      Review Overtime
-                    </button>
-                    <button
-                      onClick={() => {
-                        const today = formatDateInput(new Date());
-                        const daily = masterDataServer.filter(e => formatDateInput(new Date(e.date)) === today);
-                        exportDailyPerformanceReport(daily);
-                      }}
-                      className="px-4 py-2 rounded-2xl bg-indigo-600 text-white text-[9px] font-black uppercase"
-                    >
-                      Download Today CSV
-                    </button>
-                  </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button onClick={() => setAdminDashboardRange('1d')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${adminDashboardRange === '1d' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>1 Day</button>
+                  <button onClick={() => setAdminDashboardRange('2d')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${adminDashboardRange === '2d' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>2 Days</button>
+                  <button onClick={() => setAdminDashboardRange('7d')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${adminDashboardRange === '7d' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>Weekly</button>
+                  <button onClick={() => setAdminDashboardRange('30d')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${adminDashboardRange === '30d' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>Monthly</button>
+                  <button onClick={() => setAdminDashboardRange('365d')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${adminDashboardRange === '365d' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>Yearly</button>
                 </div>
               </div>
 
               <div className="dashboard bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-sm border dark:border-slate-800">
                 <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-6">
                   <div>
-                    <h3 className="text-lg font-black uppercase dark:text-white">Admin Performance Dashboard</h3>
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">KPI summary, compliance, and top performers</p>
+                    <h3 className="text-lg font-black uppercase dark:text-white">KPI Overview</h3>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Entries: {adminDashboardStats.entriesCount} | Users: {adminDashboardStats.totalUsers}</p>
                   </div>
-                  <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Entries: {adminDashboardStats.entriesCount} | Users: {adminDashboardStats.totalUsers}</div>
                 </div>
 
                 {adminDashboardStats.entriesCount === 0 ? (
@@ -1766,32 +1784,100 @@ export default function App() {
                 ) : (
                   <>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                      <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                      <button
+                        onClick={() => {
+                          const { start, end } = getRangeBounds(adminDashboardRange);
+                          setMasterDateStart(formatDateInput(start));
+                          setMasterDateEnd(formatDateInput(end));
+                          setMasterBreakViolationFilter('All');
+                          setMasterOvertimeFilter('All');
+                          setMasterStatusFilter('All');
+                          setMasterSortBy('productivity');
+                          setActiveTab('all-logs');
+                        }}
+                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
+                      >
                         <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Total Logged</p>
                         <div className="text-2xl font-black font-mono text-indigo-600 mt-2">{secondsToTime(adminDashboardStats.totalLoginSec)}</div>
-                      </div>
-                      <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                      </button>
+                      <button
+                        onClick={() => {
+                          const { start, end } = getRangeBounds(adminDashboardRange);
+                          setMasterDateStart(formatDateInput(start));
+                          setMasterDateEnd(formatDateInput(end));
+                          setMasterSortBy('talk');
+                          setMasterBreakViolationFilter('All');
+                          setMasterOvertimeFilter('All');
+                          setMasterStatusFilter('All');
+                          setActiveTab('all-logs');
+                        }}
+                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
+                      >
                         <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Avg Talk Time</p>
                         <div className="text-2xl font-black font-mono text-emerald-600 mt-2">{secondsToTime(Math.round(adminDashboardStats.totalTalkSec / Math.max(1, adminDashboardStats.entriesCount)))}</div>
-                      </div>
-                      <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                      </button>
+                      <button
+                        onClick={() => {
+                          const { start, end } = getRangeBounds(adminDashboardRange);
+                          setMasterDateStart(formatDateInput(start));
+                          setMasterDateEnd(formatDateInput(end));
+                          setMasterBreakViolationFilter('Yes');
+                          setMasterOvertimeFilter('All');
+                          setMasterStatusFilter('All');
+                          setActiveTab('all-logs');
+                        }}
+                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
+                      >
                         <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Break Exceeded</p>
                         <div className="text-2xl font-black text-rose-600 mt-2">{adminDashboardStats.breakExceededCount}</div>
-                      </div>
-                      <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                      </button>
+                      <button
+                        onClick={() => {
+                          const { start, end } = getRangeBounds(adminDashboardRange);
+                          setMasterDateStart(formatDateInput(start));
+                          setMasterDateEnd(formatDateInput(end));
+                          setMasterOvertimeFilter('Yes');
+                          setMasterBreakViolationFilter('All');
+                          setMasterStatusFilter('All');
+                          setActiveTab('all-logs');
+                        }}
+                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
+                      >
                         <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Total OT</p>
                         <div className="text-2xl font-black font-mono text-amber-600 mt-2">{secondsToTime(adminDashboardStats.totalOtSec)}</div>
-                      </div>
-                      <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                      </button>
+                      <button
+                        onClick={() => {
+                          const { start, end } = getRangeBounds(adminDashboardRange);
+                          setMasterDateStart(formatDateInput(start));
+                          setMasterDateEnd(formatDateInput(end));
+                          setMasterStatusFilter('Approved');
+                          setMasterBreakViolationFilter('All');
+                          setMasterOvertimeFilter('All');
+                          setActiveTab('all-logs');
+                        }}
+                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
+                      >
                         <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Approval Rate</p>
                         <div className="text-2xl font-black text-emerald-600 mt-2">
                           {Math.round((adminDashboardStats.statusCounts.Approved / Math.max(1, adminDashboardStats.entriesCount)) * 100)}%
                         </div>
-                      </div>
-                      <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                      </button>
+                      <button
+                        onClick={() => {
+                          const { start, end } = getRangeBounds(adminDashboardRange);
+                          setMasterDateStart(formatDateInput(start));
+                          setMasterDateEnd(formatDateInput(end));
+                          setMasterBreakViolationFilter('All');
+                          setMasterOvertimeFilter('All');
+                          setMasterStatusFilter('All');
+                          setActiveTab('all-logs');
+                        }}
+                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
+                      >
                         <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Active Users</p>
                         <div className="text-2xl font-black text-indigo-600 mt-2">{adminDashboardStats.totalUsers}</div>
-                      </div>
+                      </button>
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
@@ -1879,6 +1965,20 @@ export default function App() {
                     </div>
                   </>
                 )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'admin' && (
+            <div className="space-y-6 animate-in fade-in duration-500">
+              <div className="flex justify-between items-center">
+                <h2 className="text-xl font-black uppercase dark:text-white">Team Hub</h2>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => exportConsolidatedExcel(masterDataServer)} className="bg-amber-600 px-6 py-4 text-white rounded-xl font-black text-[10px] uppercase shadow-xl hover:bg-amber-700 transition-all">Master Analysis Report</button>
+                  <button onClick={() => { fetchMigrations(); setActiveTab('migrations'); }} className="bg-slate-200 dark:bg-slate-800 px-4 py-3 rounded-xl text-[10px] font-black uppercase">Migration Reports</button>
+                  <button onClick={() => setShowMigrationModal(true)} disabled={isMigrating} className="bg-emerald-600 px-4 py-3 rounded-xl text-[10px] font-black uppercase text-white">{isMigrating ? 'Migrating...' : 'Run migration now'}</button>
+                  <button onClick={() => setShowPasswords(p => !p)} className="bg-slate-200 dark:bg-slate-800 px-4 py-3 rounded-xl text-[10px] font-black uppercase">{showPasswords ? 'Hide Passwords' : 'Show Passwords'}</button>
+                </div>
               </div>
               <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-sm border dark:border-slate-800">
                 <div className="relative mb-8 group"><SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-amber-500 transition-colors" size={16} /><input type="text" placeholder="Search team by ID or name..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full py-5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none pl-14 pr-8 text-xs font-bold border focus:border-amber-500/20 dark:text-white shadow-inner" /></div>
