@@ -152,6 +152,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'calc' | 'details' | 'admin-dashboard' | 'admin' | 'all-logs' | 'ot-log' | 'ot-admin' | 'users' | 'migrations'>('calc');
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [shiftType, setShiftType] = useState<ShiftType>('Full Day');
+  const [emergencyOt, setEmergencyOt] = useState(false);
   const [showOTModal, setShowOTModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [allUsers, setAllUsers] = useState<User[]>([]);
@@ -558,8 +559,9 @@ export default function App() {
   const shiftBase = shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
   const otEligibilitySec = 4.5 * 3600;
   const extraSec = Math.max(0, loginSec - shiftBase);
-  const otTrigger = loginSec >= otEligibilitySec && extraSec > 3600;
-  const otSec = otTrigger ? extraSec : 0;
+  const emergencyOtEligible = emergencyOt && loginSec >= 3600;
+  const otTrigger = !emergencyOt && loginSec >= otEligibilitySec && extraSec > 3600;
+  const otSec = emergencyOtEligible ? loginSec : otTrigger ? extraSec : 0;
 
   const loginRemainingSec = Math.max(0, shiftBase - loginSec);
   const totalBreakSec = timeToSeconds(formData.pause) + timeToSeconds(formData.dispo) + timeToSeconds(formData.dead);
@@ -611,12 +613,17 @@ export default function App() {
       return;
     }
 
+    if (emergencyOt && loginSec < 3600) {
+      pushToast('Emergency OT requires at least 1 hour of login time.', 'warning');
+      return;
+    }
+
     const targetUserId = adminViewingUserId || user.id;
-    const calculatedStatus: EntryStatus = (applyForOT) ? 'Pending' : 'N/A';
+    const calculatedStatus: EntryStatus = emergencyOt ? 'Approved' : (applyForOT) ? 'Pending' : 'N/A';
 
     if (editingId) {
       // update on server
-      const payload = { userId: targetUserId, entryId: editingId, entry: { ...formData, shiftType, status: calculatedStatus } };
+      const payload = { userId: targetUserId, entryId: editingId, entry: { ...formData, shiftType, status: calculatedStatus, emergencyOt } };
       try {
         const r = await fetch('/api/storage?action=updateEntry', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         const b = await r.json();
@@ -633,7 +640,8 @@ export default function App() {
         date: new Date().toISOString(),
         shiftType,
         ...formData,
-        status: calculatedStatus
+        status: calculatedStatus,
+        emergencyOt
       };
       try {
         const r = await fetch('/api/storage?action=addEntry', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: targetUserId, entry: newEntry }) });
@@ -646,10 +654,11 @@ export default function App() {
     }
     setFormData(INITIAL_FORM_STATE);
     setShowOTModal(false);
+    setEmergencyOt(false);
   };
 
   const saveToHistory = () => {
-    if (otTrigger && !showOTModal) {
+    if (!emergencyOt && otTrigger && !showOTModal) {
       setShowOTModal(true);
       return;
     }
@@ -735,6 +744,7 @@ export default function App() {
       reason: entry.reason || ''
     });
     setShiftType(entry.shiftType);
+    setEmergencyOt(!!entry.emergencyOt);
     setEditingId(entry.id);
     setActiveTab('calc');
   };
@@ -749,7 +759,19 @@ export default function App() {
     const now = new Date();
     const relevant = entries.filter(e => {
       const d = new Date(e.date);
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear() && !e.emergencyOt;
+    });
+    return {
+      inbound: relevant.reduce((acc, curr) => acc + (curr.inbound || 0), 0),
+      outbound: relevant.reduce((acc, curr) => acc + (curr.outbound || 0), 0)
+    };
+  }, [entries]);
+
+  const monthlyEmergencyStats = useMemo(() => {
+    const now = new Date();
+    const relevant = entries.filter(e => {
+      const d = new Date(e.date);
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear() && e.emergencyOt;
     });
     return {
       inbound: relevant.reduce((acc, curr) => acc + (curr.inbound || 0), 0),
@@ -810,6 +832,7 @@ export default function App() {
   const otEntries = useMemo(() => {
     const eligibilitySec = 4.5 * 3600;
     return masterData.filter(d => {
+      if (d.emergencyOt) return false;
       const loginSec = timeToSeconds(d.currentLogin || '00:00:00');
       const shiftTarget = d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
       const extra = loginSec - shiftTarget;
@@ -830,6 +853,7 @@ export default function App() {
   const pendingOtApprovals = useMemo(() => {
     const eligibilitySec = 4.5 * 3600;
     return masterData.filter(d => {
+      if (d.emergencyOt) return false;
       const loginSec = timeToSeconds(d.currentLogin || '00:00:00');
       const shiftBase = d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
       const extra = loginSec - shiftBase;
@@ -842,6 +866,9 @@ export default function App() {
     const eligibilitySec = 4.5 * 3600;
     return masterData.filter(d => {
       const loginSec = timeToSeconds(d.currentLogin || '00:00:00');
+      if (d.emergencyOt) {
+        return loginSec >= 3600;
+      }
       const shiftBase = d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
       const extra = loginSec - shiftBase;
       if (!(loginSec >= eligibilitySec && extra > 3600)) return false;
@@ -1049,23 +1076,28 @@ export default function App() {
     let otCount = 0;
 
     for (const entry of rangeEntries) {
+      const isEmergency = !!entry.emergencyOt;
       inboundTotal += entry.inbound || 0;
       outboundTotal += entry.outbound || 0;
-      if (entry.shiftType === 'Full Day') {
-        fullDayCount += 1;
-        if (timeToSeconds(entry.currentLogin || '00:00:00') < 9 * 3600) {
-          underShiftFullDay += 1;
-        }
-      } else {
-        halfDayCount += 1;
-        if (timeToSeconds(entry.currentLogin || '00:00:00') < 4.5 * 3600) {
-          underShiftHalfDay += 1;
+      if (!isEmergency) {
+        if (entry.shiftType === 'Full Day') {
+          fullDayCount += 1;
+          if (timeToSeconds(entry.currentLogin || '00:00:00') < 9 * 3600) {
+            underShiftFullDay += 1;
+          }
+        } else {
+          halfDayCount += 1;
+          if (timeToSeconds(entry.currentLogin || '00:00:00') < 4.5 * 3600) {
+            underShiftHalfDay += 1;
+          }
         }
       }
 
       const loginSec = timeToSeconds(entry.currentLogin || '00:00:00');
       const shiftBase = entry.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
-      if (loginSec > shiftBase) {
+      if (isEmergency) {
+        if (loginSec >= 3600) otCount += 1;
+      } else if (loginSec > shiftBase) {
         otCount += 1;
       }
     }
@@ -1092,10 +1124,10 @@ export default function App() {
   const userKpiData = useMemo(() => {
     const inboundEntries = userRangeEntries.filter(entry => (entry.inbound || 0) > 0);
     const outboundEntries = userRangeEntries.filter(entry => (entry.outbound || 0) > 0);
-    const halfDayEntries = userRangeEntries.filter(entry => entry.shiftType === 'Half Day');
-    const fullDayEntries = userRangeEntries.filter(entry => entry.shiftType === 'Full Day');
-    const underShiftFullDayEntries = userRangeEntries.filter(entry => entry.shiftType === 'Full Day' && timeToSeconds(entry.currentLogin || '00:00:00') < 9 * 3600);
-    const underShiftHalfDayEntries = userRangeEntries.filter(entry => entry.shiftType === 'Half Day' && timeToSeconds(entry.currentLogin || '00:00:00') < 4.5 * 3600);
+    const halfDayEntries = userRangeEntries.filter(entry => entry.shiftType === 'Half Day' && !entry.emergencyOt);
+    const fullDayEntries = userRangeEntries.filter(entry => entry.shiftType === 'Full Day' && !entry.emergencyOt);
+    const underShiftFullDayEntries = userRangeEntries.filter(entry => entry.shiftType === 'Full Day' && !entry.emergencyOt && timeToSeconds(entry.currentLogin || '00:00:00') < 9 * 3600);
+    const underShiftHalfDayEntries = userRangeEntries.filter(entry => entry.shiftType === 'Half Day' && !entry.emergencyOt && timeToSeconds(entry.currentLogin || '00:00:00') < 4.5 * 3600);
     const breakExceededEntries = userRangeEntries.filter(entry => {
       const breakSec = timeToSeconds(entry.pause || '00:00:00') + timeToSeconds(entry.dispo || '00:00:00') + timeToSeconds(entry.dead || '00:00:00');
       const breakLimit = entry.shiftType === 'Full Day' ? 7200 : 2700;
@@ -1103,6 +1135,7 @@ export default function App() {
     });
     const otEntries = userRangeEntries.filter(entry => {
       const loginSec = timeToSeconds(entry.currentLogin || '00:00:00');
+      if (entry.emergencyOt) return loginSec >= 3600;
       const shiftBase = entry.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
       return loginSec > shiftBase;
     });
@@ -1295,28 +1328,29 @@ export default function App() {
   };
 
   const openHalfDayKpi = () => {
-    const entries = rangeEntries.filter(entry => entry.shiftType === 'Half Day');
+    const entries = rangeEntries.filter(entry => entry.shiftType === 'Half Day' && !entry.emergencyOt);
     openKpiModal('Half Day', buildEntryRows(entries));
   };
 
   const openFullDayKpi = () => {
-    const entries = rangeEntries.filter(entry => entry.shiftType === 'Full Day');
+    const entries = rangeEntries.filter(entry => entry.shiftType === 'Full Day' && !entry.emergencyOt);
     openKpiModal('Full Day', buildEntryRows(entries));
   };
 
   const openUnderShiftFullDayKpi = () => {
-    const entries = rangeEntries.filter(entry => entry.shiftType === 'Full Day' && timeToSeconds(entry.currentLogin || '00:00:00') < 9 * 3600);
+    const entries = rangeEntries.filter(entry => entry.shiftType === 'Full Day' && !entry.emergencyOt && timeToSeconds(entry.currentLogin || '00:00:00') < 9 * 3600);
     openKpiModal('Under Shift Full Day', buildEntryRows(entries));
   };
 
   const openUnderShiftHalfDayKpi = () => {
-    const entries = rangeEntries.filter(entry => entry.shiftType === 'Half Day' && timeToSeconds(entry.currentLogin || '00:00:00') < 4.5 * 3600);
+    const entries = rangeEntries.filter(entry => entry.shiftType === 'Half Day' && !entry.emergencyOt && timeToSeconds(entry.currentLogin || '00:00:00') < 4.5 * 3600);
     openKpiModal('Under Shift Half Day', buildEntryRows(entries));
   };
 
   const openTotalOtKpi = () => {
     const entries = rangeEntries.filter(entry => {
       const loginSec = timeToSeconds(entry.currentLogin || '00:00:00');
+      if (entry.emergencyOt) return loginSec >= 3600;
       const shiftBase = entry.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
       return loginSec > shiftBase;
     });
@@ -1787,6 +1821,7 @@ export default function App() {
   const otLogEntries = useMemo(() => {
     const eligibilitySec = 4.5 * 3600;
     return entries.filter(e => {
+      if (e.emergencyOt) return false;
       const loginSec = timeToSeconds(e.currentLogin || '00:00:00');
       const shiftTarget = e.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
       const extra = loginSec - shiftTarget;
@@ -2165,8 +2200,21 @@ export default function App() {
                     <textarea value={formData.reason} onChange={(e) => setFormData({ ...formData, reason: e.target.value })} placeholder="Optional note: reason for OT or any comment" className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-950 rounded-xl outline-none border focus:border-indigo-500/20 font-mono text-xs dark:text-white" rows={3} />
                   </div>
 
+                  <div className="mt-4 flex items-center gap-2">
+                    <input
+                      id="emergency-ot"
+                      type="checkbox"
+                      checked={emergencyOt}
+                      onChange={(e) => setEmergencyOt(e.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                    />
+                    <label htmlFor="emergency-ot" className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+                      Emergency OT (Min 1 Hour)
+                    </label>
+                  </div>
+
                   <div className="flex gap-3 mt-8">
-                    {editingId && (<button onClick={() => { setEditingId(null); setFormData(INITIAL_FORM_STATE); }} className="px-6 py-4 bg-slate-200 text-slate-600 rounded-2xl font-black text-[10px] uppercase">Cancel</button>)}
+                    {editingId && (<button onClick={() => { setEditingId(null); setFormData(INITIAL_FORM_STATE); setEmergencyOt(false); }} className="px-6 py-4 bg-slate-200 text-slate-600 rounded-2xl font-black text-[10px] uppercase">Cancel</button>)}
                     <button onClick={saveToHistory} className={`flex-1 py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl text-white bg-indigo-600`}>{editingId ? 'Update Session' : 'Commit Audit'}</button>
                   </div>
                 </div>
@@ -2222,10 +2270,10 @@ export default function App() {
                     </div>
                   </div>
 
-                  {otTrigger && (
+                  {(otTrigger || emergencyOtEligible) && (
                     <div className="p-3 bg-rose-500/10 rounded-xl border border-rose-500/20 text-center animate-pulse">
                       <div className="text-[8px] font-black text-rose-600 uppercase tracking-widest flex items-center justify-center gap-2">
-                        <ZapIcon size={12} /> Overtime Detected: {secondsToTime(otSec)}
+                        <ZapIcon size={12} /> {emergencyOt ? 'Emergency OT' : 'Overtime Detected'}: {secondsToTime(otSec)}
                       </div>
                     </div>
                   )}
@@ -2237,6 +2285,10 @@ export default function App() {
                   <div className="flex gap-4 mb-8">
                     <div className="flex-1 p-3 bg-white/5 rounded-2xl border border-white/10 text-center"><div className="text-[8px] font-black opacity-40 uppercase mb-1">Inbound</div><div className="text-2xl font-black tracking-tighter leading-none">{monthlyStats.inbound}</div></div>
                     <div className="flex-1 p-3 bg-white/5 rounded-2xl border border-white/10 text-center"><div className="text-[8px] font-black opacity-40 uppercase mb-1">Outbound</div><div className="text-2xl font-black tracking-tighter leading-none">{monthlyStats.outbound}</div></div>
+                  </div>
+                  <div className="flex gap-4 mb-8">
+                    <div className="flex-1 p-3 bg-white/5 rounded-2xl border border-white/10 text-center"><div className="text-[8px] font-black opacity-40 uppercase mb-1">Emergency Inbound</div><div className="text-xl font-black tracking-tighter leading-none">{monthlyEmergencyStats.inbound}</div></div>
+                    <div className="flex-1 p-3 bg-white/5 rounded-2xl border border-white/10 text-center"><div className="text-[8px] font-black opacity-40 uppercase mb-1">Emergency Outbound</div><div className="text-xl font-black tracking-tighter leading-none">{monthlyEmergencyStats.outbound}</div></div>
                   </div>
                   <div className="space-y-4 relative z-10">
                     <div className="flex justify-between items-center text-[9px] font-black uppercase opacity-80"><span>Milestone Reach</span><span>{Math.round(Math.min(100, (monthlyStats.inbound / 2500) * 100))}%</span></div>
@@ -3424,6 +3476,8 @@ export default function App() {
                       {filteredOtRecords.map(log => {
                         const lSec = timeToSeconds(log.currentLogin);
                         const sBase = log.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+                        const isEmergency = !!log.emergencyOt;
+                        const otValue = isEmergency ? lSec : Math.max(0, lSec - sBase);
 
                         return (
                           <tr key={log.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
@@ -3440,9 +3494,9 @@ export default function App() {
                               <div className="font-bold text-slate-600 dark:text-slate-400 text-sm">{new Date(log.date).toLocaleDateString('en-GB')}</div>
                               <div className="text-[9px] text-slate-400 font-bold uppercase">{new Date(log.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                             </td>
-                            <td className="px-2 py-2 align-top"><span className="text-[10px] text-indigo-500 font-black uppercase">{log.shiftType}</span></td>
+                            <td className="px-2 py-2 align-top"><span className={`text-[10px] font-black uppercase ${isEmergency ? 'text-amber-500' : 'text-indigo-500'}`}>{isEmergency ? 'Emergency OT' : log.shiftType}</span></td>
                             <td className="px-2 py-2 align-top font-mono font-black text-indigo-500">{log.currentLogin}</td>
-                            <td className="px-2 py-2 align-top font-mono font-black text-amber-600">{secondsToTime(lSec - sBase)}</td>
+                            <td className="px-2 py-2 align-top font-mono font-black text-amber-600">{secondsToTime(otValue)}</td>
                             <td className="px-2 py-2 align-top text-[12px] text-slate-600 break-words whitespace-normal">{log.reason ? (log.reason.length > 80 ? log.reason.slice(0, 77) + '...' : log.reason) : '-'}</td>
                             <td className="px-2 py-2 align-top text-center">
                               <StatusBadge status={log.status} />

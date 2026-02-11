@@ -19,6 +19,7 @@ export interface TimeData {
   userRealId?: string; // Internal UUID reference for admin lookups
   date: string;
   shiftType: ShiftType;
+  emergencyOt?: boolean;
   pause: string; // HH:MM:SS
   dispo: string; // HH:MM:SS
   dead: string;  // HH:MM:SS
