@@ -132,6 +132,16 @@ export default function App() {
   const [adminDashboardRange, setAdminDashboardRange] = useState<'1d' | '2d' | '7d' | '30d' | '365d'>('1d');
   const [parsedSignature, setParsedSignature] = useState<string | null>(null);
   const [lastCommittedSignature, setLastCommittedSignature] = useState<string | null>(null);
+  const [otApprovalSearchQuery, setOtApprovalSearchQuery] = useState('');
+  const [otApprovalDateStart, setOtApprovalDateStart] = useState('');
+  const [otApprovalDateEnd, setOtApprovalDateEnd] = useState('');
+  const [otApprovalShiftFilter, setOtApprovalShiftFilter] = useState<'All' | ShiftType>('All');
+  const [masterReasonFilter, setMasterReasonFilter] = useState<'All' | 'Yes' | 'No'>('All');
+  const [masterEarlyLoginFilter, setMasterEarlyLoginFilter] = useState<'All' | 'Yes' | 'No'>('All');
+  const [masterEarlyLogoutFilter, setMasterEarlyLogoutFilter] = useState<'All' | 'Yes' | 'No'>('All');
+  const [topPerformerMetric, setTopPerformerMetric] = useState<'score' | 'inbound' | 'outbound' | 'ot' | 'breakUnder2h'>('score');
+  const [lowPerformerMetric, setLowPerformerMetric] = useState<'score' | 'inbound' | 'outbound' | 'ot' | 'breakUnder2h'>('score');
+  const [adminAlertSignature, setAdminAlertSignature] = useState<string | null>(null);
 
   // Pagination state for admin tables
   const [masterCurrentPage, setMasterCurrentPage] = useState(1);
@@ -507,13 +517,14 @@ export default function App() {
       (formData.outbound || 0) === 0 &&
       (!formData.reason || !formData.reason.trim());
     const isNewUserEntry = !editingId && user.role === 'user';
+    const isNewEntry = !editingId;
+
+    if (isNewEntry && allZero) {
+      pushToast('Please fill the data before committing.', 'warning');
+      return;
+    }
 
     if (isNewUserEntry) {
-      if (allZero) {
-        pushToast('Paste and extract data before committing.', 'warning');
-        return;
-      }
-
       if (!parsedSignature) {
         pushToast('Commit is allowed only after you paste and extract once.', 'warning');
         return;
@@ -653,6 +664,12 @@ export default function App() {
     setActiveTab('calc');
   };
 
+  const startEditAsAdmin = (entry: TimeData) => {
+    const target = allUsers.find(u => u.empId.toLowerCase() === entry.userId.toLowerCase());
+    if (target) setAdminViewingUserId(target.id);
+    startEdit(entry);
+  };
+
   const monthlyStats = useMemo(() => {
     const now = new Date();
     const relevant = entries.filter(e => {
@@ -705,6 +722,9 @@ export default function App() {
       masterAgentFilter ||
       masterBreakViolationFilter !== 'All' ||
       masterOvertimeFilter !== 'All' ||
+      masterReasonFilter !== 'All' ||
+      masterEarlyLoginFilter !== 'All' ||
+      masterEarlyLogoutFilter !== 'All' ||
       masterQuickLoginMin ||
       masterQuickBreakMin ||
       masterQuickTalkMin ||
@@ -774,6 +794,30 @@ export default function App() {
             ? isOvertime
             : !isOvertime;
 
+        const hasReason = !!(d.reason && d.reason.trim());
+        const matchesReason = masterReasonFilter === 'All'
+          ? true
+          : masterReasonFilter === 'Yes'
+            ? hasReason
+            : !hasReason;
+
+        const loginTimeSec = timeToSeconds(d.loginTimestamp || '00:00:00');
+        const logoutTimeSec = timeToSeconds(d.logoutTimestamp || '00:00:00');
+        const earlyLoginThreshold = 9 * 3600;
+        const earlyLogoutThreshold = d.shiftType === 'Full Day' ? (18 * 3600) : (13.5 * 3600);
+        const isEarlyLogin = loginTimeSec > 0 && loginTimeSec < earlyLoginThreshold;
+        const isEarlyLogout = logoutTimeSec > 0 && logoutTimeSec < earlyLogoutThreshold;
+        const matchesEarlyLogin = masterEarlyLoginFilter === 'All'
+          ? true
+          : masterEarlyLoginFilter === 'Yes'
+            ? isEarlyLogin
+            : !isEarlyLogin;
+        const matchesEarlyLogout = masterEarlyLogoutFilter === 'All'
+          ? true
+          : masterEarlyLogoutFilter === 'Yes'
+            ? isEarlyLogout
+            : !isEarlyLogout;
+
         const matchesQuickLogin = masterQuickLoginMin ? loginSec >= Number(masterQuickLoginMin) * 60 : true;
         const matchesQuickBreak = masterQuickBreakMin ? breakSec >= Number(masterQuickBreakMin) * 60 : true;
         const matchesQuickTalk = masterQuickTalkMin ? timeToSeconds(d.talk || '00:00:00') >= Number(masterQuickTalkMin) * 60 : true;
@@ -788,6 +832,9 @@ export default function App() {
           matchesAgent &&
           matchesBreakViolation &&
           matchesOvertime &&
+          matchesReason &&
+          matchesEarlyLogin &&
+          matchesEarlyLogout &&
           matchesQuickLogin &&
           matchesQuickBreak &&
           matchesQuickTalk &&
@@ -828,6 +875,9 @@ export default function App() {
     masterAgentFilter,
     masterBreakViolationFilter,
     masterOvertimeFilter,
+    masterReasonFilter,
+    masterEarlyLoginFilter,
+    masterEarlyLogoutFilter,
     masterQuickLoginMin,
     masterQuickBreakMin,
     masterQuickTalkMin,
@@ -859,6 +909,40 @@ export default function App() {
     );
   }, [otEntries, otAdminSearchQuery]);
 
+  const otApprovalEntries = useMemo(() => {
+    return masterData.filter(d => {
+      const loginSec = timeToSeconds(d.currentLogin || '00:00:00');
+      const shiftBase = d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+      return loginSec > shiftBase && d.status === 'Pending';
+    });
+  }, [masterData]);
+
+  const filteredOtApprovals = useMemo(() => {
+    let result = otApprovalEntries;
+    if (otApprovalSearchQuery) {
+      const q = otApprovalSearchQuery.toLowerCase();
+      result = result.filter(d =>
+        (d.userName || '').toLowerCase().includes(q) ||
+        (d.userId || '').toLowerCase().includes(q) ||
+        new Date(d.date).toLocaleDateString('en-GB').includes(q)
+      );
+    }
+    if (otApprovalDateStart) {
+      const start = new Date(otApprovalDateStart);
+      start.setHours(0, 0, 0, 0);
+      result = result.filter(d => new Date(d.date) >= start);
+    }
+    if (otApprovalDateEnd) {
+      const end = new Date(otApprovalDateEnd);
+      end.setHours(23, 59, 59, 999);
+      result = result.filter(d => new Date(d.date) <= end);
+    }
+    if (otApprovalShiftFilter !== 'All') {
+      result = result.filter(d => d.shiftType === otApprovalShiftFilter);
+    }
+    return result;
+  }, [otApprovalEntries, otApprovalSearchQuery, otApprovalDateStart, otApprovalDateEnd, otApprovalShiftFilter]);
+
   const getRangeBounds = (range: '1d' | '2d' | '7d' | '30d' | '365d') => {
     const end = new Date();
     end.setHours(23, 59, 59, 999);
@@ -867,6 +951,15 @@ export default function App() {
     start.setDate(start.getDate() - (days - 1));
     start.setHours(0, 0, 0, 0);
     return { start, end };
+  };
+
+  const applyDashboardRangeToMaster = () => {
+    const { start, end } = getRangeBounds(adminDashboardRange);
+    setMasterDateStart(formatDateInput(start));
+    setMasterDateEnd(formatDateInput(end));
+    setMasterSearchQuery('');
+    setMasterAgentFilter('');
+    setMasterShiftFilter('All');
   };
 
   const adminDashboardStats = useMemo(() => {
@@ -883,6 +976,11 @@ export default function App() {
         totalOutbound: 0,
         totalOtSec: 0,
         breakExceededCount: 0,
+        reasonCount: 0,
+        underShiftCount: 0,
+        earlyLoginCount: 0,
+        earlyLogoutCount: 0,
+        otApplicantCount: 0,
         statusCounts: { Approved: 0, Pending: 0, Rejected: 0, 'N/A': 0 },
         shiftCounts: { 'Full Day': 0, 'Half Day': 0 },
         users: [] as Array<{
@@ -894,6 +992,8 @@ export default function App() {
           totalInbound: number;
           totalOutbound: number;
           breakExceededCount: number;
+          otCount: number;
+          breakUnder2hCount: number;
           score: number;
         }>,
         topPerformer: null as null | { userId: string; userName: string; score: number },
@@ -917,6 +1017,8 @@ export default function App() {
       totalInbound: number;
       totalOutbound: number;
       breakExceededCount: number;
+      otCount: number;
+      breakUnder2hCount: number;
     }>();
 
     let totalLoginSec = 0;
@@ -928,6 +1030,11 @@ export default function App() {
     let totalOutbound = 0;
     let totalOtSec = 0;
     let breakExceededCount = 0;
+    let reasonCount = 0;
+    let underShiftCount = 0;
+    let earlyLoginCount = 0;
+    let earlyLogoutCount = 0;
+    let otApplicantCount = 0;
 
     for (const d of data) {
       const loginSec = timeToSeconds(d.currentLogin || '00:00:00');
@@ -939,6 +1046,15 @@ export default function App() {
       const breakLimit = d.shiftType === 'Full Day' ? 7200 : 2700;
       const otSec = Math.max(0, loginSec - shiftBase);
       const isBreakExceeded = breakSec > breakLimit;
+      const hasReason = !!(d.reason && d.reason.trim());
+      const isUnderShift = loginSec < shiftBase;
+      const loginTimeSec = timeToSeconds(d.loginTimestamp || '00:00:00');
+      const logoutTimeSec = timeToSeconds(d.logoutTimestamp || '00:00:00');
+      const earlyLoginThreshold = 9 * 3600;
+      const earlyLogoutThreshold = d.shiftType === 'Full Day' ? (18 * 3600) : (13.5 * 3600);
+      const isEarlyLogin = loginTimeSec > 0 && loginTimeSec < earlyLoginThreshold;
+      const isEarlyLogout = logoutTimeSec > 0 && logoutTimeSec < earlyLogoutThreshold;
+      const isOtApplicant = loginSec > shiftBase && d.status === 'Pending';
 
       totalLoginSec += loginSec;
       totalTalkSec += talkSec;
@@ -949,6 +1065,11 @@ export default function App() {
       totalOutbound += d.outbound || 0;
       totalOtSec += otSec;
       if (isBreakExceeded) breakExceededCount += 1;
+      if (hasReason) reasonCount += 1;
+      if (isUnderShift) underShiftCount += 1;
+      if (isEarlyLogin) earlyLoginCount += 1;
+      if (isEarlyLogout) earlyLogoutCount += 1;
+      if (isOtApplicant) otApplicantCount += 1;
 
       statusCounts[d.status] = (statusCounts[d.status] || 0) + 1;
       shiftCounts[d.shiftType] = (shiftCounts[d.shiftType] || 0) + 1;
@@ -961,7 +1082,9 @@ export default function App() {
         totalCustomerTalkSec: 0,
         totalInbound: 0,
         totalOutbound: 0,
-        breakExceededCount: 0
+        breakExceededCount: 0,
+        otCount: 0,
+        breakUnder2hCount: 0
       };
 
       existing.entriesCount += 1;
@@ -970,6 +1093,8 @@ export default function App() {
       existing.totalInbound += d.inbound || 0;
       existing.totalOutbound += d.outbound || 0;
       if (isBreakExceeded) existing.breakExceededCount += 1;
+      if (loginSec > shiftBase) existing.otCount += 1;
+      if (breakSec < 2 * 3600) existing.breakUnder2hCount += 1;
       usersMap.set(d.userId, existing);
     }
 
@@ -989,8 +1114,30 @@ export default function App() {
       return { ...u, score };
     }).sort((a, b) => b.score - a.score);
 
-    const topPerformer = scoredUsers.length ? { userId: scoredUsers[0].userId, userName: scoredUsers[0].userName, score: scoredUsers[0].score } : null;
-    const bottomPerformer = scoredUsers.length ? { userId: scoredUsers[scoredUsers.length - 1].userId, userName: scoredUsers[scoredUsers.length - 1].userName, score: scoredUsers[scoredUsers.length - 1].score } : null;
+    const getMetricValue = (u: typeof scoredUsers[number], metric: typeof topPerformerMetric) => {
+      if (metric === 'inbound') return u.totalInbound;
+      if (metric === 'outbound') return u.totalOutbound;
+      if (metric === 'ot') return u.otCount;
+      if (metric === 'breakUnder2h') return u.breakUnder2hCount;
+      return u.score;
+    };
+
+    const pickByMetric = (metric: typeof topPerformerMetric, mode: 'max' | 'min') => {
+      if (!scoredUsers.length) return null;
+      return scoredUsers.reduce((best, curr) => {
+        if (!best) return curr;
+        const bestValue = getMetricValue(best, metric);
+        const currValue = getMetricValue(curr, metric);
+        return mode === 'max'
+          ? (currValue > bestValue ? curr : best)
+          : (currValue < bestValue ? curr : best);
+      }, null as null | typeof scoredUsers[number]);
+    };
+
+    const topPick = pickByMetric(topPerformerMetric, 'max');
+    const lowPick = pickByMetric(lowPerformerMetric, 'min');
+    const topPerformer = topPick ? { userId: topPick.userId, userName: topPick.userName, score: topPick.score } : null;
+    const bottomPerformer = lowPick ? { userId: lowPick.userId, userName: lowPick.userName, score: lowPick.score } : null;
 
     return {
       entriesCount: data.length,
@@ -1004,13 +1151,37 @@ export default function App() {
       totalOutbound,
       totalOtSec,
       breakExceededCount,
+      reasonCount,
+      underShiftCount,
+      earlyLoginCount,
+      earlyLogoutCount,
+      otApplicantCount,
       statusCounts,
       shiftCounts,
       users: scoredUsers,
       topPerformer,
       bottomPerformer
     };
-  }, [adminDashboardRange, masterDataServer, user]);
+  }, [adminDashboardRange, lowPerformerMetric, masterDataServer, topPerformerMetric, user]);
+
+  const getPerformerMetricLabel = (metric: typeof topPerformerMetric) => {
+    if (metric === 'inbound') return 'Inbound';
+    if (metric === 'outbound') return 'Outbound';
+    if (metric === 'ot') return 'OT Count';
+    if (metric === 'breakUnder2h') return 'Break <2h';
+    return 'Score';
+  };
+
+  const getPerformerMetricValue = (userId: string | undefined, metric: typeof topPerformerMetric) => {
+    if (!userId) return 0;
+    const target = adminDashboardStats.users.find(u => u.userId === userId);
+    if (!target) return 0;
+    if (metric === 'inbound') return target.totalInbound;
+    if (metric === 'outbound') return target.totalOutbound;
+    if (metric === 'ot') return target.otCount;
+    if (metric === 'breakUnder2h') return target.breakUnder2hCount;
+    return Math.round(target.score);
+  };
 
   const drillEntries = useMemo(() => {
     if (!drillUserId) return [] as TimeData[];
@@ -1049,6 +1220,31 @@ export default function App() {
   }, [user, allUsers]);
 
   useEffect(() => {
+    if (user?.role !== 'admin' || !masterDataServer.length) return;
+    const today = formatDateInput(new Date());
+    let otApplied = 0;
+    let breakExceededCount = 0;
+    let loginExceededCount = 0;
+    for (const d of masterDataServer) {
+      const entryDate = formatDateInput(new Date(d.date));
+      if (entryDate !== today) continue;
+      const loginSec = timeToSeconds(d.currentLogin || '00:00:00');
+      const shiftBase = d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+      const breakSec = timeToSeconds(d.pause || '00:00:00') + timeToSeconds(d.dispo || '00:00:00') + timeToSeconds(d.dead || '00:00:00');
+      const breakLimit = d.shiftType === 'Full Day' ? 7200 : 2700;
+      if (loginSec > shiftBase) loginExceededCount += 1;
+      if (breakSec > breakLimit) breakExceededCount += 1;
+      if (loginSec > shiftBase && d.status === 'Pending') otApplied += 1;
+    }
+    const signature = `${today}|${otApplied}|${breakExceededCount}|${loginExceededCount}`;
+    if (signature === adminAlertSignature) return;
+    setAdminAlertSignature(signature);
+    if (otApplied || breakExceededCount || loginExceededCount) {
+      pushToast(`Today: OT applied ${otApplied}, break exceeded ${breakExceededCount}, login exceeded ${loginExceededCount}.`, 'info');
+    }
+  }, [adminAlertSignature, masterDataServer, user]);
+
+  useEffect(() => {
     if (user?.role === 'admin') {
       const today = formatDateInput(new Date());
       setMasterDateStart(today);
@@ -1074,6 +1270,9 @@ export default function App() {
     masterAgentFilter,
     masterBreakViolationFilter,
     masterOvertimeFilter,
+    masterReasonFilter,
+    masterEarlyLoginFilter,
+    masterEarlyLogoutFilter,
     masterQuickLoginMin,
     masterQuickBreakMin,
     masterQuickTalkMin,
@@ -1376,6 +1575,7 @@ export default function App() {
             <>
               <button onClick={() => { setAdminViewingUserId(null); setActiveTab('admin-dashboard'); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'admin-dashboard' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:bg-white/5'}`}><LayoutGridIcon size={16} /> Admin Dashboard</button>
               <button onClick={() => { setAdminViewingUserId(null); setActiveTab('admin'); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'admin' && !adminViewingUserId ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:bg-white/5'}`}><UsersIcon size={16} /> Team Hub</button>
+              <button onClick={() => { setAdminViewingUserId(null); setActiveTab('ot-admin'); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'ot-admin' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:bg-white/5'}`}><ZapIcon size={16} /> OT Approvals</button>
               <button onClick={() => { setAdminViewingUserId(null); setActiveTab('all-logs'); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'all-logs' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:bg-white/5'}`}><LayersIcon size={16} /> Master Stream</button>
             </>
           )}
@@ -1755,6 +1955,122 @@ export default function App() {
             </div>
           )}
 
+          {activeTab === 'ot-admin' && (
+            <div className="space-y-8 animate-in fade-in duration-500">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-black uppercase tracking-wider dark:text-white">OT Approvals</h2>
+                  <p className="text-slate-400 text-[10px] font-bold mt-1 uppercase tracking-widest">Pending OT requests requiring approval</p>
+                </div>
+                <button
+                  onClick={() => setActiveTab('all-logs')}
+                  className="bg-slate-200 dark:bg-slate-800 px-4 py-3 rounded-xl text-[10px] font-black uppercase"
+                >
+                  Open Master Stream
+                </button>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border dark:border-slate-800 shadow-sm space-y-6">
+                <div className="relative group max-w-lg">
+                  <SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-amber-500 transition-colors" size={18} />
+                  <input
+                    type="text"
+                    placeholder="Search OT approvals by name, ID, or date (DD/MM/YYYY)..."
+                    value={otApprovalSearchQuery}
+                    onChange={(e) => setOtApprovalSearchQuery(e.target.value)}
+                    className="w-full py-4 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none pl-14 pr-8 text-xs font-bold border border-transparent focus:border-amber-500/20 dark:text-white transition-all shadow-inner"
+                  />
+                </div>
+
+                <div className="flex flex-col md:flex-row gap-4">
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">From Date</label>
+                    <input type="date" value={otApprovalDateStart} onChange={(e) => setOtApprovalDateStart(e.target.value)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner" />
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">To Date</label>
+                    <input type="date" value={otApprovalDateEnd} onChange={(e) => setOtApprovalDateEnd(e.target.value)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner" />
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Shift</label>
+                    <select value={otApprovalShiftFilter} onChange={(e) => setOtApprovalShiftFilter(e.target.value as any)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner appearance-none cursor-pointer">
+                      <option value="All">All Shifts</option>
+                      <option value="Full Day">Full Day</option>
+                      <option value="Half Day">Half Day</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto rounded-[2rem] border dark:border-slate-800/50">
+                  <table className="w-full text-left text-[13px] min-w-[1100px]">
+                    <thead className="bg-slate-50 dark:bg-slate-950/50 font-black uppercase tracking-[0.2em] text-slate-400 text-[10px]">
+                      <tr>
+                        <th className="px-6 py-5">Shift Date</th>
+                        <th className="px-6 py-5">Agent</th>
+                        <th className="px-6 py-5">Logged Duration</th>
+                        <th className="px-6 py-5 text-center">Calculated OT</th>
+                        <th className="px-6 py-5">Reason</th>
+                        <th className="px-6 py-5 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y dark:divide-slate-800/50">
+                      {filteredOtApprovals.map(e => {
+                        const loginSec = timeToSeconds(e.currentLogin || '00:00:00');
+                        const shiftBase = e.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+                        return (
+                          <tr key={e.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
+                            <td className="px-6 py-6">
+                              <span className="font-black dark:text-slate-200">{new Date(e.date).toLocaleDateString()}</span>
+                              <span className="block text-[10px] text-slate-400 font-black uppercase mt-0.5">{e.shiftType}</span>
+                            </td>
+                            <td className="px-6 py-6">
+                              <div className="font-black dark:text-slate-200 uppercase">{e.userName || e.userId}</div>
+                              <div className="text-[10px] text-slate-400 font-mono uppercase">{e.userId}</div>
+                            </td>
+                            <td className="px-6 py-6 font-mono font-black dark:text-slate-400">{e.currentLogin}</td>
+                            <td className="px-6 py-6 text-center text-amber-600 font-black font-mono">{secondsToTime(Math.max(0, loginSec - shiftBase))}</td>
+                            <td className="px-6 py-6 text-sm text-slate-600">{e.reason ? (e.reason.length > 80 ? e.reason.slice(0, 77) + '...' : e.reason) : '-'}</td>
+                            <td className="px-6 py-6 text-right">
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  onClick={() => { setActionedEntry(e); setApprovalReason(''); setApprovalModalOpen(true); }}
+                                  className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-[9px] font-black uppercase"
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={() => { setActionedEntry(e); setRejectionReason(''); setRejectionModalOpen(true); }}
+                                  className="px-3 py-2 rounded-xl bg-rose-600 text-white text-[9px] font-black uppercase"
+                                >
+                                  Reject
+                                </button>
+                                <button
+                                  onClick={() => startEditAsAdmin(e)}
+                                  className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-[9px] font-black uppercase"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  onClick={() => deleteEntry(e.id, e.userId)}
+                                  className="px-3 py-2 rounded-xl bg-rose-50 text-rose-600 text-[9px] font-black uppercase"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {filteredOtApprovals.length === 0 && (
+                        <tr><td colSpan={6} className="px-6 py-24 text-center text-slate-400 font-bold uppercase tracking-widest opacity-30">No pending OT approvals</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'admin-dashboard' && (
             <div className="space-y-6 animate-in fade-in duration-500">
               <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
@@ -1783,47 +2099,33 @@ export default function App() {
                   <div className="px-6 py-16 text-center text-slate-400 font-bold uppercase tracking-widest opacity-40">No data available for dashboard</div>
                 ) : (
                   <>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
                       <button
                         onClick={() => {
-                          const { start, end } = getRangeBounds(adminDashboardRange);
-                          setMasterDateStart(formatDateInput(start));
-                          setMasterDateEnd(formatDateInput(end));
+                          applyDashboardRangeToMaster();
                           setMasterBreakViolationFilter('All');
                           setMasterOvertimeFilter('All');
                           setMasterStatusFilter('All');
+                          setMasterReasonFilter('All');
+                          setMasterEarlyLoginFilter('All');
+                          setMasterEarlyLogoutFilter('All');
                           setMasterSortBy('productivity');
                           setActiveTab('all-logs');
                         }}
                         className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
                       >
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Total Logged</p>
-                        <div className="text-2xl font-black font-mono text-indigo-600 mt-2">{secondsToTime(adminDashboardStats.totalLoginSec)}</div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Users Overview</p>
+                        <div className="text-2xl font-black text-indigo-600 mt-2">{adminDashboardStats.totalUsers}</div>
                       </button>
                       <button
                         onClick={() => {
-                          const { start, end } = getRangeBounds(adminDashboardRange);
-                          setMasterDateStart(formatDateInput(start));
-                          setMasterDateEnd(formatDateInput(end));
-                          setMasterSortBy('talk');
-                          setMasterBreakViolationFilter('All');
-                          setMasterOvertimeFilter('All');
-                          setMasterStatusFilter('All');
-                          setActiveTab('all-logs');
-                        }}
-                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
-                      >
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Avg Talk Time</p>
-                        <div className="text-2xl font-black font-mono text-emerald-600 mt-2">{secondsToTime(Math.round(adminDashboardStats.totalTalkSec / Math.max(1, adminDashboardStats.entriesCount)))}</div>
-                      </button>
-                      <button
-                        onClick={() => {
-                          const { start, end } = getRangeBounds(adminDashboardRange);
-                          setMasterDateStart(formatDateInput(start));
-                          setMasterDateEnd(formatDateInput(end));
+                          applyDashboardRangeToMaster();
                           setMasterBreakViolationFilter('Yes');
                           setMasterOvertimeFilter('All');
                           setMasterStatusFilter('All');
+                          setMasterReasonFilter('All');
+                          setMasterEarlyLoginFilter('All');
+                          setMasterEarlyLogoutFilter('All');
                           setActiveTab('all-logs');
                         }}
                         className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
@@ -1833,50 +2135,151 @@ export default function App() {
                       </button>
                       <button
                         onClick={() => {
-                          const { start, end } = getRangeBounds(adminDashboardRange);
-                          setMasterDateStart(formatDateInput(start));
-                          setMasterDateEnd(formatDateInput(end));
+                          applyDashboardRangeToMaster();
                           setMasterOvertimeFilter('Yes');
+                          setMasterStatusFilter('Pending');
                           setMasterBreakViolationFilter('All');
-                          setMasterStatusFilter('All');
+                          setMasterReasonFilter('All');
+                          setMasterEarlyLoginFilter('All');
+                          setMasterEarlyLogoutFilter('All');
                           setActiveTab('all-logs');
                         }}
                         className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
                       >
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Total OT</p>
-                        <div className="text-2xl font-black font-mono text-amber-600 mt-2">{secondsToTime(adminDashboardStats.totalOtSec)}</div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Total OT Applicants</p>
+                        <div className="text-2xl font-black text-amber-600 mt-2">{adminDashboardStats.otApplicantCount}</div>
                       </button>
                       <button
                         onClick={() => {
-                          const { start, end } = getRangeBounds(adminDashboardRange);
-                          setMasterDateStart(formatDateInput(start));
-                          setMasterDateEnd(formatDateInput(end));
-                          setMasterStatusFilter('Approved');
+                          applyDashboardRangeToMaster();
+                          setMasterSortBy('inbound');
+                          setMasterStatusFilter('All');
                           setMasterBreakViolationFilter('All');
                           setMasterOvertimeFilter('All');
+                          setMasterReasonFilter('All');
+                          setMasterEarlyLoginFilter('All');
+                          setMasterEarlyLogoutFilter('All');
                           setActiveTab('all-logs');
                         }}
                         className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
                       >
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Approval Rate</p>
-                        <div className="text-2xl font-black text-emerald-600 mt-2">
-                          {Math.round((adminDashboardStats.statusCounts.Approved / Math.max(1, adminDashboardStats.entriesCount)) * 100)}%
-                        </div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Inbound Total</p>
+                        <div className="text-2xl font-black text-indigo-600 mt-2">{adminDashboardStats.totalInbound}</div>
                       </button>
                       <button
                         onClick={() => {
-                          const { start, end } = getRangeBounds(adminDashboardRange);
-                          setMasterDateStart(formatDateInput(start));
-                          setMasterDateEnd(formatDateInput(end));
+                          applyDashboardRangeToMaster();
+                          setMasterSortBy('outbound');
+                          setMasterStatusFilter('All');
                           setMasterBreakViolationFilter('All');
                           setMasterOvertimeFilter('All');
-                          setMasterStatusFilter('All');
+                          setMasterReasonFilter('All');
+                          setMasterEarlyLoginFilter('All');
+                          setMasterEarlyLogoutFilter('All');
                           setActiveTab('all-logs');
                         }}
                         className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
                       >
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Active Users</p>
-                        <div className="text-2xl font-black text-indigo-600 mt-2">{adminDashboardStats.totalUsers}</div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Outbound Total</p>
+                        <div className="text-2xl font-black text-indigo-600 mt-2">{adminDashboardStats.totalOutbound}</div>
+                      </button>
+                      <button
+                        onClick={() => {
+                          applyDashboardRangeToMaster();
+                          setMasterReasonFilter('Yes');
+                          setMasterStatusFilter('All');
+                          setMasterBreakViolationFilter('All');
+                          setMasterOvertimeFilter('All');
+                          setMasterEarlyLoginFilter('All');
+                          setMasterEarlyLogoutFilter('All');
+                          setActiveTab('all-logs');
+                        }}
+                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
+                      >
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Reason Count</p>
+                        <div className="text-2xl font-black text-emerald-600 mt-2">{adminDashboardStats.reasonCount}</div>
+                      </button>
+                      <button
+                        onClick={() => {
+                          applyDashboardRangeToMaster();
+                          setMasterShiftFilter('Full Day');
+                          setMasterStatusFilter('All');
+                          setMasterBreakViolationFilter('All');
+                          setMasterOvertimeFilter('All');
+                          setMasterReasonFilter('All');
+                          setMasterEarlyLoginFilter('All');
+                          setMasterEarlyLogoutFilter('All');
+                          setActiveTab('all-logs');
+                        }}
+                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
+                      >
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Full Day Count</p>
+                        <div className="text-2xl font-black text-indigo-600 mt-2">{adminDashboardStats.shiftCounts['Full Day']}</div>
+                      </button>
+                      <button
+                        onClick={() => {
+                          applyDashboardRangeToMaster();
+                          setMasterShiftFilter('Half Day');
+                          setMasterStatusFilter('All');
+                          setMasterBreakViolationFilter('All');
+                          setMasterOvertimeFilter('All');
+                          setMasterReasonFilter('All');
+                          setMasterEarlyLoginFilter('All');
+                          setMasterEarlyLogoutFilter('All');
+                          setActiveTab('all-logs');
+                        }}
+                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
+                      >
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Half Day Count</p>
+                        <div className="text-2xl font-black text-amber-600 mt-2">{adminDashboardStats.shiftCounts['Half Day']}</div>
+                      </button>
+                      <button
+                        onClick={() => {
+                          applyDashboardRangeToMaster();
+                          setMasterOvertimeFilter('No');
+                          setMasterStatusFilter('All');
+                          setMasterBreakViolationFilter('All');
+                          setMasterReasonFilter('All');
+                          setMasterEarlyLoginFilter('All');
+                          setMasterEarlyLogoutFilter('All');
+                          setActiveTab('all-logs');
+                        }}
+                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
+                      >
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Under-Shift Logins</p>
+                        <div className="text-2xl font-black text-rose-600 mt-2">{adminDashboardStats.underShiftCount}</div>
+                      </button>
+                      <button
+                        onClick={() => {
+                          applyDashboardRangeToMaster();
+                          setMasterEarlyLoginFilter('Yes');
+                          setMasterStatusFilter('All');
+                          setMasterBreakViolationFilter('All');
+                          setMasterOvertimeFilter('All');
+                          setMasterReasonFilter('All');
+                          setMasterEarlyLogoutFilter('All');
+                          setActiveTab('all-logs');
+                        }}
+                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
+                      >
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Early Login</p>
+                        <div className="text-2xl font-black text-indigo-600 mt-2">{adminDashboardStats.earlyLoginCount}</div>
+                      </button>
+                      <button
+                        onClick={() => {
+                          applyDashboardRangeToMaster();
+                          setMasterEarlyLogoutFilter('Yes');
+                          setMasterStatusFilter('All');
+                          setMasterBreakViolationFilter('All');
+                          setMasterOvertimeFilter('All');
+                          setMasterReasonFilter('All');
+                          setMasterEarlyLoginFilter('All');
+                          setActiveTab('all-logs');
+                        }}
+                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
+                      >
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Early Logout</p>
+                        <div className="text-2xl font-black text-indigo-600 mt-2">{adminDashboardStats.earlyLogoutCount}</div>
                       </button>
                     </div>
 
@@ -1918,12 +2321,27 @@ export default function App() {
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
                       <div className="p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-4">Top Performer</p>
+                        <div className="flex items-center justify-between mb-4">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Top Performer</p>
+                          <select
+                            value={topPerformerMetric}
+                            onChange={(e) => setTopPerformerMetric(e.target.value as any)}
+                            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-[9px] font-black uppercase px-2 py-1"
+                          >
+                            <option value="score">Score</option>
+                            <option value="inbound">Inbound</option>
+                            <option value="outbound">Outbound</option>
+                            <option value="ot">OT Count</option>
+                            <option value="breakUnder2h">Break &lt;2h</option>
+                          </select>
+                        </div>
                         {adminDashboardStats.topPerformer ? (
                           <div className="flex items-center justify-between">
                             <div>
                               <div className="text-sm font-black uppercase dark:text-white">{adminDashboardStats.topPerformer.userName}</div>
-                              <div className="text-[10px] font-bold uppercase text-emerald-500">Score {Math.round(adminDashboardStats.topPerformer.score)}</div>
+                              <div className="text-[10px] font-bold uppercase text-emerald-500">
+                                {getPerformerMetricLabel(topPerformerMetric)} {getPerformerMetricValue(adminDashboardStats.topPerformer.userId, topPerformerMetric)}
+                              </div>
                             </div>
                             <button
                               onClick={() => {
@@ -1941,12 +2359,27 @@ export default function App() {
                       </div>
 
                       <div className="p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-4">Needs Attention</p>
+                        <div className="flex items-center justify-between mb-4">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Needs Attention</p>
+                          <select
+                            value={lowPerformerMetric}
+                            onChange={(e) => setLowPerformerMetric(e.target.value as any)}
+                            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-[9px] font-black uppercase px-2 py-1"
+                          >
+                            <option value="score">Score</option>
+                            <option value="inbound">Inbound</option>
+                            <option value="outbound">Outbound</option>
+                            <option value="ot">OT Count</option>
+                            <option value="breakUnder2h">Break &lt;2h</option>
+                          </select>
+                        </div>
                         {adminDashboardStats.bottomPerformer ? (
                           <div className="flex items-center justify-between">
                             <div>
                               <div className="text-sm font-black uppercase dark:text-white">{adminDashboardStats.bottomPerformer.userName}</div>
-                              <div className="text-[10px] font-bold uppercase text-rose-500">Score {Math.round(adminDashboardStats.bottomPerformer.score)}</div>
+                              <div className="text-[10px] font-bold uppercase text-rose-500">
+                                {getPerformerMetricLabel(lowPerformerMetric)} {getPerformerMetricValue(adminDashboardStats.bottomPerformer.userId, lowPerformerMetric)}
+                              </div>
                             </div>
                             <button
                               onClick={() => {
