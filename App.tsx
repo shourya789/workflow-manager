@@ -1039,6 +1039,7 @@ export default function App() {
     let fullDayCount = 0;
     let underShiftFullDay = 0;
     let underShiftHalfDay = 0;
+    let otCount = 0;
 
     for (const entry of rangeEntries) {
       inboundTotal += entry.inbound || 0;
@@ -1054,6 +1055,12 @@ export default function App() {
           underShiftHalfDay += 1;
         }
       }
+
+      const loginSec = timeToSeconds(entry.currentLogin || '00:00:00');
+      const shiftBase = entry.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+      if (loginSec > shiftBase) {
+        otCount += 1;
+      }
     }
 
     return {
@@ -1062,7 +1069,8 @@ export default function App() {
       halfDayCount,
       fullDayCount,
       underShiftFullDay,
-      underShiftHalfDay
+      underShiftHalfDay,
+      otCount
     };
   }, [rangeEntries]);
 
@@ -1297,6 +1305,15 @@ export default function App() {
   const openUnderShiftHalfDayKpi = () => {
     const entries = rangeEntries.filter(entry => entry.shiftType === 'Half Day' && timeToSeconds(entry.currentLogin || '00:00:00') < 4.5 * 3600);
     openKpiModal('Under Shift Half Day', buildEntryRows(entries));
+  };
+
+  const openTotalOtKpi = () => {
+    const entries = rangeEntries.filter(entry => {
+      const loginSec = timeToSeconds(entry.currentLogin || '00:00:00');
+      const shiftBase = entry.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+      return loginSec > shiftBase;
+    });
+    openKpiModal('Total OTs', buildEntryRows(entries));
   };
 
   const kpiModalMeta = useMemo(() => {
@@ -2661,6 +2678,10 @@ export default function App() {
                     <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">OT Requests Pending</p>
                     <div className="text-2xl font-black text-amber-600 mt-2">{overviewDerived.stats.pendingOtCount}</div>
                   </button>
+                  <button onClick={openTotalOtKpi} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Total OTs</p>
+                    <div className="text-2xl font-black text-amber-600 mt-2">{rangeKpi.otCount}</div>
+                  </button>
                   <button onClick={openBreakExceededKpi} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
                     <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Break Exceeded Users</p>
                     <div className="text-2xl font-black text-rose-600 mt-2">{overviewDerived.stats.breakExceededUsers}</div>
@@ -3315,10 +3336,77 @@ export default function App() {
           {activeTab === 'ot-admin' && (
             <div className="animate-in fade-in duration-700 space-y-8">
               <div className="flex justify-between items-center">
-                <div><h2 className="text-xl font-black uppercase dark:text-white">OT Records</h2><p className="text-[10px] text-slate-400 font-bold mt-1">All approved and rejected overtime entries with user details</p></div>
+                <div><h2 className="text-xl font-black uppercase dark:text-white">OT Approvals & Records</h2><p className="text-[10px] text-slate-400 font-bold mt-1">Pending OT requests and approved/rejected history</p></div>
               </div>
 
               <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border dark:border-slate-800 shadow-sm space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-black uppercase dark:text-white">OT Approvals</h3>
+                    <p className="text-[10px] text-slate-400 font-bold mt-1 uppercase tracking-widest">Pending approvals with reasons</p>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto rounded-[2.5rem] border dark:border-slate-800">
+                  <table className="w-full text-left text-[13px] min-w-[1200px]">
+                    <thead className="bg-slate-50 dark:bg-slate-950 text-slate-400 uppercase font-black tracking-[0.1em] text-[10px] sticky top-0 z-10 border-b dark:border-slate-800">
+                      <tr>
+                        <th className="px-4 py-5">User</th>
+                        <th className="px-4 py-5">Date</th>
+                        <th className="px-4 py-5">Shift</th>
+                        <th className="px-4 py-5">Login Dur.</th>
+                        <th className="px-4 py-5">Calculated OT</th>
+                        <th className="px-4 py-5">Reason</th>
+                        <th className="px-4 py-5 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y dark:divide-slate-800/50">
+                      {pendingOtApprovals.map(log => {
+                        const lSec = timeToSeconds(log.currentLogin || '00:00:00');
+                        const sBase = log.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+                        return (
+                          <tr key={log.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
+                            <td className="px-4 py-5">
+                              <div className="flex items-center gap-4">
+                                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-black text-xs shadow-sm">{log.userName?.charAt(0)}</div>
+                                <div><div className="font-black dark:text-slate-200 uppercase">{log.userName}</div><div className="text-[11px] font-mono text-slate-400 mt-0.5 uppercase">{log.userId}</div></div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-5">
+                              <div className="font-bold text-slate-600 dark:text-slate-400 text-sm">{new Date(log.date).toLocaleDateString('en-GB')}</div>
+                              <div className="text-[10px] text-slate-400 font-bold uppercase">{new Date(log.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                            </td>
+                            <td className="px-4 py-5"><span className="text-[10px] text-indigo-500 font-black uppercase">{log.shiftType}</span></td>
+                            <td className="px-4 py-5 font-mono font-black text-indigo-500">{log.currentLogin}</td>
+                            <td className="px-4 py-5 font-mono font-black text-amber-600">{secondsToTime(Math.max(0, lSec - sBase))}</td>
+                            <td className="px-4 py-5 text-sm text-slate-600">{log.reason ? (log.reason.length > 80 ? log.reason.slice(0, 77) + '...' : log.reason) : '-'}</td>
+                            <td className="px-4 py-5 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <button onClick={() => { setActionedEntry(log); setApprovalReason(''); setApprovalModalOpen(true); }} className="p-2 bg-emerald-500/10 text-emerald-500 rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm" title="Approve"><CheckCircleIcon size={16} /></button>
+                                <button onClick={() => { setActionedEntry(log); setRejectionReason(''); setRejectionModalOpen(true); }} className="p-2 bg-rose-500/10 text-rose-500 rounded-xl hover:bg-rose-500 hover:text-white transition-all shadow-sm" title="Reject"><XIcon size={16} /></button>
+                                <button onClick={() => startEditAsAdmin(log)} className="p-2.5 text-slate-300 hover:text-indigo-500 transition-all" title="Edit Entry"><EditIcon size={16} /></button>
+                                <button onClick={() => deleteEntry(log.id, log.userId)} className="p-2.5 text-slate-300 hover:text-rose-500 transition-all" title="Delete Entry"><TrashIcon size={16} /></button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {pendingOtApprovals.length === 0 && (
+                        <tr><td colSpan={7} className="px-6 py-24 text-center text-slate-400 font-bold uppercase tracking-[0.2em] opacity-30">No pending OT approvals</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border dark:border-slate-800 shadow-sm space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-black uppercase dark:text-white">OT Records</h3>
+                    <p className="text-[10px] text-slate-400 font-bold mt-1 uppercase tracking-widest">All approved and rejected overtime entries with user details</p>
+                  </div>
+                </div>
+
                 <div className="relative group max-w-lg">
                   <SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={18} />
                   <input
@@ -3412,7 +3500,8 @@ export default function App() {
                               </div>
                             </td>
                             <td className="px-4 py-5">
-                              <span className="font-bold text-slate-600 dark:text-slate-400 text-sm">{new Date(log.date).toLocaleDateString('en-GB')}</span>
+                              <div className="font-bold text-slate-600 dark:text-slate-400 text-sm">{new Date(log.date).toLocaleDateString('en-GB')}</div>
+                              <div className="text-[10px] text-slate-400 font-bold uppercase">{new Date(log.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                             </td>
                             <td className="px-4 py-5"><span className="text-[10px] text-indigo-500 font-black uppercase">{log.shiftType}</span></td>
                             <td className="px-4 py-5 font-mono font-black text-indigo-500">{log.currentLogin}</td>
