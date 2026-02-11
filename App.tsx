@@ -173,6 +173,7 @@ export default function App() {
   const [overviewRange, setOverviewRange] = useState<'today' | 'weekly' | 'monthly' | 'yearly' | 'custom'>('today');
   const [overviewCustomStart, setOverviewCustomStart] = useState('');
   const [overviewCustomEnd, setOverviewCustomEnd] = useState('');
+  const [userKpiRange, setUserKpiRange] = useState<'daily' | 'weekly' | 'monthly' | 'yearly'>('weekly');
   const [showPasswords, setShowPasswords] = useState(false);
   const [masterDataServer, setMasterDataServer] = useState<TimeData[]>([]);
   const [migrations, setMigrations] = useState<any[]>([]);
@@ -894,7 +895,31 @@ export default function App() {
     return { start: customStart, end: customEnd };
   };
 
+  const getUserKpiBounds = () => {
+    const end = new Date();
+    end.setHours(23, 59, 59, 999);
+    const start = new Date(end);
+    if (userKpiRange === 'daily') {
+      start.setHours(0, 0, 0, 0);
+      return { start, end };
+    }
+    if (userKpiRange === 'weekly') {
+      start.setDate(start.getDate() - 6);
+      start.setHours(0, 0, 0, 0);
+      return { start, end };
+    }
+    if (userKpiRange === 'monthly') {
+      start.setDate(1);
+      start.setHours(0, 0, 0, 0);
+      return { start, end };
+    }
+    start.setMonth(0, 1);
+    start.setHours(0, 0, 0, 0);
+    return { start, end };
+  };
+
   const overviewRangeBounds = useMemo(getOverviewBounds, [overviewCustomEnd, overviewCustomStart, overviewRange]);
+  const userKpiRangeBounds = useMemo(getUserKpiBounds, [userKpiRange]);
 
   const overviewEntries = useMemo(() => {
     if (user?.role !== 'admin') return [] as TimeData[];
@@ -1029,6 +1054,69 @@ export default function App() {
       underShiftHalfDay
     };
   }, [rangeEntries]);
+
+  const userRangeEntries = useMemo(() => {
+    return entries.filter(entry => {
+      if (isBlankEntry(entry)) return false;
+      const entryDate = new Date(entry.date);
+      return entryDate >= userKpiRangeBounds.start && entryDate <= userKpiRangeBounds.end;
+    });
+  }, [entries, userKpiRangeBounds.end, userKpiRangeBounds.start]);
+
+  const userKpiData = useMemo(() => {
+    const inboundEntries = userRangeEntries.filter(entry => (entry.inbound || 0) > 0);
+    const outboundEntries = userRangeEntries.filter(entry => (entry.outbound || 0) > 0);
+    const halfDayEntries = userRangeEntries.filter(entry => entry.shiftType === 'Half Day');
+    const fullDayEntries = userRangeEntries.filter(entry => entry.shiftType === 'Full Day');
+    const underShiftFullDayEntries = userRangeEntries.filter(entry => entry.shiftType === 'Full Day' && timeToSeconds(entry.currentLogin || '00:00:00') < 9 * 3600);
+    const underShiftHalfDayEntries = userRangeEntries.filter(entry => entry.shiftType === 'Half Day' && timeToSeconds(entry.currentLogin || '00:00:00') < 4.5 * 3600);
+    const breakExceededEntries = userRangeEntries.filter(entry => {
+      const breakSec = timeToSeconds(entry.pause || '00:00:00') + timeToSeconds(entry.dispo || '00:00:00') + timeToSeconds(entry.dead || '00:00:00');
+      const breakLimit = entry.shiftType === 'Full Day' ? 7200 : 2700;
+      return breakSec > breakLimit;
+    });
+    const otEntries = userRangeEntries.filter(entry => {
+      const loginSec = timeToSeconds(entry.currentLogin || '00:00:00');
+      const shiftBase = entry.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+      return loginSec > shiftBase;
+    });
+    const rejectedOtCount = userRangeEntries.filter(entry => {
+      const loginSec = timeToSeconds(entry.currentLogin || '00:00:00');
+      const shiftBase = entry.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+      return loginSec > shiftBase && entry.status === 'Rejected';
+    }).length;
+    const repeatedOtMisuse = rejectedOtCount >= 2;
+    const needsAttentionEntries = userRangeEntries.filter(entry => {
+      const loginSec = timeToSeconds(entry.currentLogin || '00:00:00');
+      const shiftBase = entry.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+      const breakSec = timeToSeconds(entry.pause || '00:00:00') + timeToSeconds(entry.dispo || '00:00:00') + timeToSeconds(entry.dead || '00:00:00');
+      const breakLimit = entry.shiftType === 'Full Day' ? 7200 : 2700;
+      const volume = (entry.inbound || 0) + (entry.outbound || 0);
+      const talkSec = timeToSeconds(entry.talk || '00:00:00');
+      const breakExceeded = breakSec > breakLimit;
+      const underShift = loginSec < shiftBase;
+      const lowActivity = volume < 5 && talkSec < 10 * 60;
+      return breakExceeded || underShift || lowActivity || repeatedOtMisuse;
+    });
+    const topPerformerEntries = userRangeEntries.filter(entry => {
+      const breakSec = timeToSeconds(entry.pause || '00:00:00') + timeToSeconds(entry.dispo || '00:00:00') + timeToSeconds(entry.dead || '00:00:00');
+      return (entry.inbound || 0) > 65 && breakSec < 2 * 3600;
+    });
+
+    return {
+      inboundEntries,
+      outboundEntries,
+      halfDayEntries,
+      fullDayEntries,
+      underShiftFullDayEntries,
+      underShiftHalfDayEntries,
+      totalLoginEntries: userRangeEntries,
+      needsAttentionEntries,
+      topPerformerEntries,
+      otEntries,
+      breakExceededEntries
+    };
+  }, [userRangeEntries]);
 
   const openKpiModal = (title: string, rows: KpiRow[]) => {
     setKpiModalTitle(title);
@@ -2088,6 +2176,61 @@ export default function App() {
                   }} className="bg-indigo-600 px-6 py-3 text-white rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-600/20"><FileSpreadsheetIcon size={14} /> Performance XLSX</button>
                 </div>
               </div>
+
+              {adminViewingUserId && (
+                <div className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border dark:border-slate-800 shadow-sm space-y-5">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Range</span>
+                      <button onClick={() => setUserKpiRange('daily')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${userKpiRange === 'daily' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>Daily</button>
+                      <button onClick={() => setUserKpiRange('weekly')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${userKpiRange === 'weekly' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>Weekly</button>
+                      <button onClick={() => setUserKpiRange('monthly')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${userKpiRange === 'monthly' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>Monthly</button>
+                      <button onClick={() => setUserKpiRange('yearly')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${userKpiRange === 'yearly' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>Yearly</button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                    {[
+                      { label: 'Inbound Calls', rows: userKpiData.inboundEntries },
+                      { label: 'Outbound Calls', rows: userKpiData.outboundEntries },
+                      { label: 'Half Days', rows: userKpiData.halfDayEntries },
+                      { label: 'Full Days', rows: userKpiData.fullDayEntries },
+                      { label: 'Under Shift Full Day', rows: userKpiData.underShiftFullDayEntries },
+                      { label: 'Under Shift Half Day', rows: userKpiData.underShiftHalfDayEntries },
+                      { label: 'Total Login Days', rows: userKpiData.totalLoginEntries },
+                      { label: 'Needs Attention Days', rows: userKpiData.needsAttentionEntries },
+                      { label: 'Top Performers Days', rows: userKpiData.topPerformerEntries },
+                      { label: 'No of OTs', rows: userKpiData.otEntries },
+                      { label: 'Break Exceeded Users', rows: userKpiData.breakExceededEntries }
+                    ].map(card => (
+                      <button
+                        key={card.label}
+                        onClick={() => openKpiModal(card.label, buildEntryRows(card.rows))}
+                        className="group p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left hover:shadow-md transition-all"
+                        type="button"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">{card.label}</p>
+                            <div className="text-2xl font-black text-slate-900 dark:text-white mt-2">{card.rows.length}</div>
+                          </div>
+                          <button
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              exportDailyPerformanceReport(card.rows);
+                            }}
+                            className="p-2 rounded-xl bg-white/70 dark:bg-slate-900 text-slate-500 hover:text-indigo-600 shadow-sm"
+                            title="Download"
+                            type="button"
+                          >
+                            <DownloadIcon size={14} />
+                          </button>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border dark:border-slate-800 shadow-sm space-y-6">
                 <div className="relative group max-w-md">
