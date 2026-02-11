@@ -82,6 +82,19 @@ function StatusBadge({ status }: { status: EntryStatus }) {
   );
 }
 
+type KpiRow = {
+  id: string;
+  name: string;
+  empId: string;
+  date?: string;
+  shiftType?: ShiftType;
+  inbound?: number;
+  outbound?: number;
+  loginSec?: number;
+  breakSec?: number;
+  count?: number;
+};
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authView, setAuthView] = useState<'login' | 'register'>('login');
@@ -125,7 +138,7 @@ export default function App() {
   const [masterJumpDate, setMasterJumpDate] = useState('');
   const [showMasterAdvancedFilters, setShowMasterAdvancedFilters] = useState(false);
   const [masterFocusMode, setMasterFocusMode] = useState<'all' | 'needs' | 'top' | 'pendingOt'>('all');
-  const [overviewRange, setOverviewRange] = useState<'today' | 'weekly' | 'custom'>('today');
+  const [overviewRange, setOverviewRange] = useState<'today' | 'weekly' | 'monthly' | 'yearly' | 'custom'>('today');
   const [overviewCustomStart, setOverviewCustomStart] = useState('');
   const [overviewCustomEnd, setOverviewCustomEnd] = useState('');
   const [showPasswords, setShowPasswords] = useState(false);
@@ -143,6 +156,9 @@ export default function App() {
   const [approvalModalOpen, setApprovalModalOpen] = useState(false);
   const [approvalReason, setApprovalReason] = useState('');
   const [drillUserId, setDrillUserId] = useState<string | null>(null);
+  const [kpiModalOpen, setKpiModalOpen] = useState(false);
+  const [kpiModalTitle, setKpiModalTitle] = useState('');
+  const [kpiModalRows, setKpiModalRows] = useState<KpiRow[]>([]);
 
   // Pagination state for admin tables
   const [masterCurrentPage, setMasterCurrentPage] = useState(1);
@@ -799,6 +815,16 @@ export default function App() {
       start.setHours(0, 0, 0, 0);
       return { start, end };
     }
+    if (overviewRange === 'monthly') {
+      start.setDate(1);
+      start.setHours(0, 0, 0, 0);
+      return { start, end };
+    }
+    if (overviewRange === 'yearly') {
+      start.setMonth(0, 1);
+      start.setHours(0, 0, 0, 0);
+      return { start, end };
+    }
     const customStart = overviewCustomStart ? new Date(overviewCustomStart) : new Date(end);
     const customEnd = overviewCustomEnd ? new Date(overviewCustomEnd) : new Date(end);
     customStart.setHours(0, 0, 0, 0);
@@ -873,14 +899,7 @@ export default function App() {
       return breakExceeded || underShift || lowActivity || repeatedOtMisuse;
     });
 
-    const topPerformers = derived.filter(item => {
-      const isNeeds = needsAttention.some(n => n.entry.id === item.entry.id);
-      if (isNeeds) return false;
-      const breakOk = item.breakSec <= 2 * 3600;
-      const loginOk = item.loginSec >= item.shiftBase;
-      const activityOk = item.volume >= avgVolume && item.talkSec >= avgTalkSec;
-      return breakOk && loginOk && activityOk;
-    });
+    const topPerformers = derived.filter(item => item.entry.inbound > 65 && item.breakSec < 2 * 3600);
 
     const pendingOt = derived.filter(item => item.loginSec >= 4.5 * 3600 && (item.loginSec - item.shiftBase) > 3600 && item.entry.status === 'Pending');
 
@@ -906,20 +925,16 @@ export default function App() {
     };
   }, [overviewEntries]);
 
-  const todayEntries = useMemo(() => {
+  const rangeEntries = useMemo(() => {
     if (user?.role !== 'admin') return [] as TimeData[];
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const end = new Date();
-    end.setHours(23, 59, 59, 999);
     return (masterDataServer || []).filter(d => {
       if (isBlankEntry(d)) return false;
       const entryDate = new Date(d.date);
-      return entryDate >= start && entryDate <= end;
+      return entryDate >= overviewRangeBounds.start && entryDate <= overviewRangeBounds.end;
     });
-  }, [masterDataServer, user]);
+  }, [masterDataServer, overviewRangeBounds.end, overviewRangeBounds.start, user]);
 
-  const todayKpi = useMemo(() => {
+  const rangeKpi = useMemo(() => {
     let inboundTotal = 0;
     let outboundTotal = 0;
     let halfDayCount = 0;
@@ -927,7 +942,7 @@ export default function App() {
     let underShiftFullDay = 0;
     let underShiftHalfDay = 0;
 
-    for (const entry of todayEntries) {
+    for (const entry of rangeEntries) {
       inboundTotal += entry.inbound || 0;
       outboundTotal += entry.outbound || 0;
       if (entry.shiftType === 'Full Day') {
@@ -951,7 +966,140 @@ export default function App() {
       underShiftFullDay,
       underShiftHalfDay
     };
-  }, [todayEntries]);
+  }, [rangeEntries]);
+
+  const openKpiModal = (title: string, rows: KpiRow[]) => {
+    setKpiModalTitle(title);
+    setKpiModalRows(rows);
+    setKpiModalOpen(true);
+  };
+
+  const buildEntryRows = (entries: TimeData[]) => {
+    return entries.map(entry => ({
+      id: entry.id,
+      name: entry.userName || entry.userId,
+      empId: entry.userId,
+      date: entry.date,
+      shiftType: entry.shiftType,
+      inbound: entry.inbound || 0,
+      outbound: entry.outbound || 0,
+      loginSec: timeToSeconds(entry.currentLogin || '00:00:00'),
+      breakSec: timeToSeconds(entry.pause || '00:00:00') + timeToSeconds(entry.dispo || '00:00:00') + timeToSeconds(entry.dead || '00:00:00')
+    }));
+  };
+
+  const openTotalLoginUsers = () => {
+    const userMap = new Map<string, KpiRow>();
+    for (const entry of rangeEntries) {
+      const existing = userMap.get(entry.userId);
+      if (existing) {
+        existing.count = (existing.count || 0) + 1;
+        continue;
+      }
+      userMap.set(entry.userId, {
+        id: entry.userId,
+        name: entry.userName || entry.userId,
+        empId: entry.userId,
+        count: 1
+      });
+    }
+    openKpiModal('Total Login Users', Array.from(userMap.values()));
+  };
+
+  const openNeedsAttentionKpi = () => {
+    const userMap = new Map<string, KpiRow>();
+    for (const item of overviewDerived.needsAttention) {
+      const entry = item.entry;
+      const existing = userMap.get(entry.userId);
+      if (existing) {
+        existing.count = (existing.count || 0) + 1;
+        continue;
+      }
+      userMap.set(entry.userId, {
+        id: entry.userId,
+        name: entry.userName || entry.userId,
+        empId: entry.userId,
+        count: 1
+      });
+    }
+    openKpiModal('Needs Attention', Array.from(userMap.values()));
+  };
+
+  const openTopPerformersKpi = () => {
+    const entries = rangeEntries.filter(entry => (entry.inbound || 0) > 65 && (timeToSeconds(entry.pause || '00:00:00') + timeToSeconds(entry.dispo || '00:00:00') + timeToSeconds(entry.dead || '00:00:00')) < 2 * 3600);
+    openKpiModal('Top Performers', buildEntryRows(entries));
+  };
+
+  const openPendingOtKpi = () => {
+    openKpiModal('OT Requests Pending', buildEntryRows(overviewDerived.pendingOt.map(item => item.entry)));
+  };
+
+  const openBreakExceededKpi = () => {
+    const userMap = new Map<string, KpiRow>();
+    for (const entry of rangeEntries) {
+      const breakSec = timeToSeconds(entry.pause || '00:00:00') + timeToSeconds(entry.dispo || '00:00:00') + timeToSeconds(entry.dead || '00:00:00');
+      if (breakSec <= 2 * 3600) continue;
+      const existing = userMap.get(entry.userId);
+      if (existing) {
+        existing.count = (existing.count || 0) + 1;
+        if (typeof existing.breakSec === 'number') {
+          existing.breakSec = Math.max(existing.breakSec, breakSec);
+        } else {
+          existing.breakSec = breakSec;
+        }
+        continue;
+      }
+      userMap.set(entry.userId, {
+        id: entry.userId,
+        name: entry.userName || entry.userId,
+        empId: entry.userId,
+        count: 1,
+        breakSec
+      });
+    }
+    openKpiModal('Break Exceeded Users', Array.from(userMap.values()));
+  };
+
+  const openInboundKpi = () => {
+    const entries = rangeEntries.filter(entry => (entry.inbound || 0) > 0).sort((a, b) => (b.inbound || 0) - (a.inbound || 0));
+    openKpiModal('Inbound', buildEntryRows(entries));
+  };
+
+  const openOutboundKpi = () => {
+    const entries = rangeEntries.filter(entry => (entry.outbound || 0) > 0).sort((a, b) => (b.outbound || 0) - (a.outbound || 0));
+    openKpiModal('Outbound', buildEntryRows(entries));
+  };
+
+  const openHalfDayKpi = () => {
+    const entries = rangeEntries.filter(entry => entry.shiftType === 'Half Day');
+    openKpiModal('Half Day', buildEntryRows(entries));
+  };
+
+  const openFullDayKpi = () => {
+    const entries = rangeEntries.filter(entry => entry.shiftType === 'Full Day');
+    openKpiModal('Full Day', buildEntryRows(entries));
+  };
+
+  const openUnderShiftFullDayKpi = () => {
+    const entries = rangeEntries.filter(entry => entry.shiftType === 'Full Day' && timeToSeconds(entry.currentLogin || '00:00:00') < 9 * 3600);
+    openKpiModal('Under Shift Full Day', buildEntryRows(entries));
+  };
+
+  const openUnderShiftHalfDayKpi = () => {
+    const entries = rangeEntries.filter(entry => entry.shiftType === 'Half Day' && timeToSeconds(entry.currentLogin || '00:00:00') < 4.5 * 3600);
+    openKpiModal('Under Shift Half Day', buildEntryRows(entries));
+  };
+
+  const kpiModalMeta = useMemo(() => {
+    const hasDate = kpiModalRows.some(row => !!row.date);
+    const hasShift = kpiModalRows.some(row => !!row.shiftType);
+    const hasInbound = kpiModalRows.some(row => typeof row.inbound === 'number');
+    const hasOutbound = kpiModalRows.some(row => typeof row.outbound === 'number');
+    const hasLogin = kpiModalRows.some(row => typeof row.loginSec === 'number');
+    const hasBreak = kpiModalRows.some(row => typeof row.breakSec === 'number');
+    const hasCount = kpiModalRows.some(row => typeof row.count === 'number');
+    return { hasDate, hasShift, hasInbound, hasOutbound, hasLogin, hasBreak, hasCount };
+  }, [kpiModalRows]);
 
   const filteredMasterData = useMemo(() => {
     let result = masterData.filter(entry => !isBlankEntry(entry));
@@ -1516,6 +1664,62 @@ export default function App() {
               >
                 Cancel
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {kpiModalOpen && (
+        <div className="fixed inset-0 z-[105] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6">
+          <div className="w-full max-w-5xl bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl p-8 space-y-6 animate-in zoom-in duration-300">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-xl font-black dark:text-white uppercase tracking-tight">{kpiModalTitle}</h3>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{kpiModalRows.length} Records</p>
+              </div>
+              <button onClick={() => setKpiModalOpen(false)} className="p-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-500">
+                <XIcon size={16} />
+              </button>
+            </div>
+
+            {kpiModalRows.length === 0 ? (
+              <div className="py-20 text-center text-[11px] font-bold uppercase tracking-widest text-slate-400">No records found</div>
+            ) : (
+              <div className="max-h-[60vh] overflow-auto rounded-2xl border border-slate-100 dark:border-slate-800">
+                <table className="min-w-full text-left text-[11px]">
+                  <thead className="bg-slate-50 dark:bg-slate-800/40 text-[10px] uppercase tracking-widest text-slate-400">
+                    <tr>
+                      <th className="px-4 py-3">Name</th>
+                      <th className="px-4 py-3">Emp ID</th>
+                      {kpiModalMeta.hasCount && <th className="px-4 py-3">Count</th>}
+                      {kpiModalMeta.hasDate && <th className="px-4 py-3">Date</th>}
+                      {kpiModalMeta.hasShift && <th className="px-4 py-3">Shift</th>}
+                      {kpiModalMeta.hasInbound && <th className="px-4 py-3">Inbound</th>}
+                      {kpiModalMeta.hasOutbound && <th className="px-4 py-3">Outbound</th>}
+                      {kpiModalMeta.hasLogin && <th className="px-4 py-3">Login</th>}
+                      {kpiModalMeta.hasBreak && <th className="px-4 py-3">Break</th>}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {kpiModalRows.map(row => (
+                      <tr key={row.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/30">
+                        <td className="px-4 py-3 font-black uppercase dark:text-white">{row.name}</td>
+                        <td className="px-4 py-3 font-mono text-slate-500 uppercase">{row.empId}</td>
+                        {kpiModalMeta.hasCount && <td className="px-4 py-3 font-black text-indigo-600">{row.count ?? '-'}</td>}
+                        {kpiModalMeta.hasDate && <td className="px-4 py-3 text-slate-500">{row.date ? new Date(row.date).toLocaleDateString() : '-'}</td>}
+                        {kpiModalMeta.hasShift && <td className="px-4 py-3 text-slate-500">{row.shiftType || '-'}</td>}
+                        {kpiModalMeta.hasInbound && <td className="px-4 py-3 font-black text-indigo-600">{row.inbound ?? 0}</td>}
+                        {kpiModalMeta.hasOutbound && <td className="px-4 py-3 font-black text-emerald-600">{row.outbound ?? 0}</td>}
+                        {kpiModalMeta.hasLogin && <td className="px-4 py-3 font-mono text-slate-600">{typeof row.loginSec === 'number' ? secondsToTime(row.loginSec) : '-'}</td>}
+                        {kpiModalMeta.hasBreak && <td className="px-4 py-3 font-mono text-rose-600">{typeof row.breakSec === 'number' ? secondsToTime(row.breakSec) : '-'}</td>}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <button onClick={() => setKpiModalOpen(false)} className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[10px] font-black uppercase tracking-widest text-slate-500">Close</button>
             </div>
           </div>
         </div>
@@ -2096,6 +2300,8 @@ export default function App() {
                 <div className="flex flex-wrap items-center gap-2">
                   <button onClick={() => setOverviewRange('today')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${overviewRange === 'today' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>Today</button>
                   <button onClick={() => setOverviewRange('weekly')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${overviewRange === 'weekly' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>Weekly</button>
+                  <button onClick={() => setOverviewRange('monthly')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${overviewRange === 'monthly' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>Monthly</button>
+                  <button onClick={() => setOverviewRange('yearly')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${overviewRange === 'yearly' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>Yearly</button>
                   <button onClick={() => setOverviewRange('custom')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${overviewRange === 'custom' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>Custom</button>
                 </div>
               </div>
@@ -2117,53 +2323,53 @@ export default function App() {
 
               <div className="dashboard bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-sm border dark:border-slate-800">
                 <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
-                  <button onClick={openTodayInbound} className="p-4 rounded-2xl bg-indigo-50 dark:bg-slate-950 border border-indigo-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
+                  <button onClick={openInboundKpi} className="p-4 rounded-2xl bg-indigo-50 dark:bg-slate-950 border border-indigo-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
                     <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Inbound Today</p>
-                    <div className="text-2xl font-black text-indigo-600 mt-2">{todayKpi.inboundTotal}</div>
+                    <div className="text-2xl font-black text-indigo-600 mt-2">{rangeKpi.inboundTotal}</div>
                   </button>
-                  <button onClick={openTodayOutbound} className="p-4 rounded-2xl bg-emerald-50 dark:bg-slate-950 border border-emerald-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
+                  <button onClick={openOutboundKpi} className="p-4 rounded-2xl bg-emerald-50 dark:bg-slate-950 border border-emerald-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
                     <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Outbound Today</p>
-                    <div className="text-2xl font-black text-emerald-600 mt-2">{todayKpi.outboundTotal}</div>
+                    <div className="text-2xl font-black text-emerald-600 mt-2">{rangeKpi.outboundTotal}</div>
                   </button>
-                  <button onClick={openTodayHalfDay} className="p-4 rounded-2xl bg-amber-50 dark:bg-slate-950 border border-amber-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
+                  <button onClick={openHalfDayKpi} className="p-4 rounded-2xl bg-amber-50 dark:bg-slate-950 border border-amber-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
                     <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Half Day Today</p>
-                    <div className="text-2xl font-black text-amber-600 mt-2">{todayKpi.halfDayCount}</div>
+                    <div className="text-2xl font-black text-amber-600 mt-2">{rangeKpi.halfDayCount}</div>
                   </button>
-                  <button onClick={openTodayFullDay} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
+                  <button onClick={openFullDayKpi} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
                     <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Full Day Today</p>
-                    <div className="text-2xl font-black text-slate-900 dark:text-white mt-2">{todayKpi.fullDayCount}</div>
+                    <div className="text-2xl font-black text-slate-900 dark:text-white mt-2">{rangeKpi.fullDayCount}</div>
                   </button>
-                  <button onClick={openUnderShiftFullDay} className="p-4 rounded-2xl bg-rose-50 dark:bg-slate-950 border border-rose-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
+                  <button onClick={openUnderShiftFullDayKpi} className="p-4 rounded-2xl bg-rose-50 dark:bg-slate-950 border border-rose-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
                     <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Under Shift Full Day</p>
-                    <div className="text-2xl font-black text-rose-600 mt-2">{todayKpi.underShiftFullDay}</div>
+                    <div className="text-2xl font-black text-rose-600 mt-2">{rangeKpi.underShiftFullDay}</div>
                   </button>
-                  <button onClick={openUnderShiftHalfDay} className="p-4 rounded-2xl bg-orange-50 dark:bg-slate-950 border border-orange-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
+                  <button onClick={openUnderShiftHalfDayKpi} className="p-4 rounded-2xl bg-orange-50 dark:bg-slate-950 border border-orange-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
                     <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Under Shift Half Day</p>
-                    <div className="text-2xl font-black text-orange-600 mt-2">{todayKpi.underShiftHalfDay}</div>
+                    <div className="text-2xl font-black text-orange-600 mt-2">{rangeKpi.underShiftHalfDay}</div>
                   </button>
                 </div>
 
                 <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                  <button onClick={openTotalLoginUsers} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
                     <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Total Login Users</p>
                     <div className="text-2xl font-black text-indigo-600 mt-2">{overviewDerived.stats.totalUsers}</div>
-                  </div>
-                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                  </button>
+                  <button onClick={openNeedsAttentionKpi} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
                     <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Needs Attention</p>
                     <div className="text-2xl font-black text-rose-600 mt-2">{overviewDerived.stats.needsUsers}</div>
-                  </div>
-                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                  </button>
+                  <button onClick={openTopPerformersKpi} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
                     <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Top Performers</p>
                     <div className="text-2xl font-black text-emerald-600 mt-2">{overviewDerived.stats.topUsers}</div>
-                  </div>
-                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                  </button>
+                  <button onClick={openPendingOtKpi} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
                     <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">OT Requests Pending</p>
                     <div className="text-2xl font-black text-amber-600 mt-2">{overviewDerived.stats.pendingOtCount}</div>
-                  </div>
-                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                  </button>
+                  <button onClick={openBreakExceededKpi} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
                     <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Break Exceeded Users</p>
                     <div className="text-2xl font-black text-rose-600 mt-2">{overviewDerived.stats.breakExceededUsers}</div>
-                  </div>
+                  </button>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
