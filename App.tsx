@@ -88,6 +88,7 @@ type KpiRow = {
   empId: string;
   date?: string;
   shiftType?: ShiftType;
+  shiftLabel?: string;
   inbound?: number;
   outbound?: number;
   loginSec?: number;
@@ -149,6 +150,7 @@ export default function App() {
   const [parseFailures, setParseFailures] = useState(0);
   const [parsedSignature, setParsedSignature] = useState<string | null>(null);
   const [lastCommittedSignature, setLastCommittedSignature] = useState<string | null>(null);
+  const autoParseTimerRef = React.useRef<NodeJS.Timeout | null>(null);
   const [activeTab, setActiveTab] = useState<'calc' | 'details' | 'admin-dashboard' | 'admin' | 'all-logs' | 'ot-log' | 'ot-admin' | 'users' | 'migrations'>('calc');
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [shiftType, setShiftType] = useState<ShiftType>('Full Day');
@@ -554,6 +556,22 @@ export default function App() {
       pushToast(`AI extraction failed: ${e?.message || 'Check server logs and ensure GENAI_API_KEY is set on Vercel'}`, 'error');
     } finally { setIsParsing(false); }
   };
+
+  useEffect(() => {
+    if (!rawText || !rawText.trim() || isParsing) return;
+    if (autoParseTimerRef.current) {
+      clearTimeout(autoParseTimerRef.current);
+    }
+    autoParseTimerRef.current = setTimeout(() => {
+      handleAIParsing();
+    }, 400);
+    return () => {
+      if (autoParseTimerRef.current) {
+        clearTimeout(autoParseTimerRef.current);
+        autoParseTimerRef.current = null;
+      }
+    };
+  }, [rawText, isParsing]);
 
   const loginSec = timeToSeconds(formData.currentLogin);
   const shiftBase = shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
@@ -1223,7 +1241,7 @@ export default function App() {
       const columns: Array<string | number> = [row.name, row.empId];
       if (kpiModalMeta.hasCount) columns.push(row.count ?? '-');
       if (kpiModalMeta.hasDate) columns.push(row.date ? new Date(row.date).toLocaleDateString() : '-');
-      if (kpiModalMeta.hasShift) columns.push(row.shiftType || '-');
+      if (kpiModalMeta.hasShift) columns.push(row.shiftLabel || row.shiftType || '-');
       if (kpiModalMeta.hasInbound) columns.push(row.inbound ?? 0);
       if (kpiModalMeta.hasOutbound) columns.push(row.outbound ?? 0);
       if (kpiModalMeta.hasLogin) columns.push(typeof row.loginSec === 'number' ? secondsToTime(row.loginSec) : '-');
@@ -1250,6 +1268,7 @@ export default function App() {
       empId: entry.userId,
       date: entry.date,
       shiftType: entry.shiftType,
+      shiftLabel: entry.emergencyOt ? 'Emergency OT' : entry.shiftType,
       inbound: entry.inbound || 0,
       outbound: entry.outbound || 0,
       loginSec: timeToSeconds(entry.currentLogin || '00:00:00'),
@@ -1371,7 +1390,7 @@ export default function App() {
 
   const kpiModalMeta = useMemo(() => {
     const hasDate = kpiModalRows.some(row => !!row.date);
-    const hasShift = kpiModalRows.some(row => !!row.shiftType);
+    const hasShift = kpiModalRows.some(row => !!row.shiftType || !!row.shiftLabel);
     const hasInbound = kpiModalRows.some(row => typeof row.inbound === 'number');
     const hasOutbound = kpiModalRows.some(row => typeof row.outbound === 'number');
     const hasLogin = kpiModalRows.some(row => typeof row.loginSec === 'number');
@@ -2050,7 +2069,7 @@ export default function App() {
                         <td className="px-4 py-3 font-mono text-slate-500 uppercase">{row.empId}</td>
                         {kpiModalMeta.hasCount && <td className="px-4 py-3 font-black text-indigo-600">{row.count ?? '-'}</td>}
                         {kpiModalMeta.hasDate && <td className="px-4 py-3 text-slate-500">{row.date ? new Date(row.date).toLocaleDateString() : '-'}</td>}
-                        {kpiModalMeta.hasShift && <td className="px-4 py-3 text-slate-500">{row.shiftType || '-'}</td>}
+                        {kpiModalMeta.hasShift && <td className="px-4 py-3 text-slate-500">{row.shiftLabel || row.shiftType || '-'}</td>}
                         {kpiModalMeta.hasInbound && <td className="px-4 py-3 font-black text-indigo-600">{row.inbound ?? 0}</td>}
                         {kpiModalMeta.hasOutbound && <td className="px-4 py-3 font-black text-emerald-600">{row.outbound ?? 0}</td>}
                         {kpiModalMeta.hasLogin && <td className="px-4 py-3 font-mono text-slate-600">{typeof row.loginSec === 'number' ? secondsToTime(row.loginSec) : '-'}</td>}
