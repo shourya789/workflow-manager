@@ -92,7 +92,9 @@ export default function App() {
   const [isParsing, setIsParsing] = useState(false);
   const [rawText, setRawText] = useState('');
   const [parseFailures, setParseFailures] = useState(0);
-  const [activeTab, setActiveTab] = useState<'calc' | 'details' | 'admin' | 'admin-dashboard' | 'all-logs' | 'ot-log' | 'ot-admin' | 'users' | 'migrations'>('calc');
+  const [parsedSignature, setParsedSignature] = useState<string | null>(null);
+  const [lastCommittedSignature, setLastCommittedSignature] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'calc' | 'details' | 'admin-dashboard' | 'admin' | 'all-logs' | 'ot-log' | 'ot-admin' | 'users' | 'migrations'>('calc');
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [shiftType, setShiftType] = useState<ShiftType>('Full Day');
   const [showOTModal, setShowOTModal] = useState(false);
@@ -110,38 +112,36 @@ export default function App() {
   const [masterAgentFilter, setMasterAgentFilter] = useState('');
   const [masterBreakViolationFilter, setMasterBreakViolationFilter] = useState<'All' | 'Yes' | 'No'>('All');
   const [masterOvertimeFilter, setMasterOvertimeFilter] = useState<'All' | 'Yes' | 'No'>('All');
-  const [masterSortBy, setMasterSortBy] = useState<'productivity' | 'break' | 'ot' | 'inbound' | 'outbound' | 'talk'>('productivity');
-  const [masterJumpDate, setMasterJumpDate] = useState('');
+  const [masterReasonFilter, setMasterReasonFilter] = useState<'All' | 'Missing' | 'Provided'>('All');
+  const [masterEarlyLoginFilter, setMasterEarlyLoginFilter] = useState<'All' | 'Yes' | 'No'>('All');
+  const [masterEarlyLogoutFilter, setMasterEarlyLogoutFilter] = useState<'All' | 'Yes' | 'No'>('All');
   const [masterQuickLoginMin, setMasterQuickLoginMin] = useState('');
   const [masterQuickBreakMin, setMasterQuickBreakMin] = useState('');
   const [masterQuickTalkMin, setMasterQuickTalkMin] = useState('');
   const [masterQuickInboundMin, setMasterQuickInboundMin] = useState('');
   const [masterQuickOutboundMin, setMasterQuickOutboundMin] = useState('');
-  const [drillUserId, setDrillUserId] = useState<string | null>(null);
+  const [masterSortBy, setMasterSortBy] = useState<'productivity' | 'break' | 'ot' | 'talk' | 'inbound' | 'outbound'>('productivity');
+  const [masterJumpDate, setMasterJumpDate] = useState('');
   const [showMasterAdvancedFilters, setShowMasterAdvancedFilters] = useState(false);
+  const [masterFocusMode, setMasterFocusMode] = useState<'all' | 'needs' | 'top' | 'pendingOt'>('all');
+  const [overviewRange, setOverviewRange] = useState<'today' | 'weekly' | 'custom'>('today');
+  const [overviewCustomStart, setOverviewCustomStart] = useState('');
+  const [overviewCustomEnd, setOverviewCustomEnd] = useState('');
   const [showPasswords, setShowPasswords] = useState(false);
   const [masterDataServer, setMasterDataServer] = useState<TimeData[]>([]);
   const [migrations, setMigrations] = useState<any[]>([]);
   const [expandedMigrationId, setExpandedMigrationId] = useState<string | null>(null);
   const [otAdminSearchQuery, setOtAdminSearchQuery] = useState('');
+  const [otApprovalSearchQuery, setOtApprovalSearchQuery] = useState('');
+  const [otApprovalDateStart, setOtApprovalDateStart] = useState('');
+  const [otApprovalDateEnd, setOtApprovalDateEnd] = useState('');
+  const [otApprovalShiftFilter, setOtApprovalShiftFilter] = useState<'All' | ShiftType>('All');
   const [rejectionModalOpen, setRejectionModalOpen] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
   const [actionedEntry, setActionedEntry] = useState<TimeData | null>(null);
   const [approvalModalOpen, setApprovalModalOpen] = useState(false);
   const [approvalReason, setApprovalReason] = useState('');
-  const [adminDashboardRange, setAdminDashboardRange] = useState<'1d' | '2d' | '7d' | '30d' | '365d'>('1d');
-  const [parsedSignature, setParsedSignature] = useState<string | null>(null);
-  const [lastCommittedSignature, setLastCommittedSignature] = useState<string | null>(null);
-  const [otApprovalSearchQuery, setOtApprovalSearchQuery] = useState('');
-  const [otApprovalDateStart, setOtApprovalDateStart] = useState('');
-  const [otApprovalDateEnd, setOtApprovalDateEnd] = useState('');
-  const [otApprovalShiftFilter, setOtApprovalShiftFilter] = useState<'All' | ShiftType>('All');
-  const [masterReasonFilter, setMasterReasonFilter] = useState<'All' | 'Yes' | 'No'>('All');
-  const [masterEarlyLoginFilter, setMasterEarlyLoginFilter] = useState<'All' | 'Yes' | 'No'>('All');
-  const [masterEarlyLogoutFilter, setMasterEarlyLogoutFilter] = useState<'All' | 'Yes' | 'No'>('All');
-  const [topPerformerMetric, setTopPerformerMetric] = useState<'score' | 'inbound' | 'outbound' | 'ot' | 'breakUnder2h'>('score');
-  const [lowPerformerMetric, setLowPerformerMetric] = useState<'score' | 'inbound' | 'outbound' | 'ot' | 'breakUnder2h'>('score');
-  const [adminAlertSignature, setAdminAlertSignature] = useState<string | null>(null);
+  const [drillUserId, setDrillUserId] = useState<string | null>(null);
 
   // Pagination state for admin tables
   const [masterCurrentPage, setMasterCurrentPage] = useState(1);
@@ -697,203 +697,29 @@ export default function App() {
     return Math.max(0, score);
   };
 
+  const isBlankEntry = (entry: TimeData) => {
+    const allZero = [
+      entry.pause,
+      entry.dispo,
+      entry.dead,
+      entry.currentLogin,
+      entry.loginTimestamp || '00:00:00',
+      entry.logoutTimestamp || '00:00:00',
+      entry.wait,
+      entry.talk,
+      entry.hold,
+      entry.customerTalk
+    ].every(v => v === '00:00:00') &&
+      (entry.inbound || 0) === 0 &&
+      (entry.outbound || 0) === 0 &&
+      (!entry.reason || !entry.reason.trim());
+    return allZero;
+  };
+
   const masterData = useMemo(() => {
     if (user?.role !== 'admin') return [];
     return masterDataServer;
   }, [masterDataServer, user]);
-
-  const filteredMasterData = useMemo(() => {
-    let result = masterData;
-
-    const queryTokens = masterSearchQuery
-      .toLowerCase()
-      .split(/\s+/)
-      .map(t => t.trim())
-      .filter(Boolean);
-    const dateToken = queryTokens.find(t => /^\d{4}-\d{2}-\d{2}$/.test(t));
-    const keywordTokens = queryTokens.filter(t => t !== dateToken);
-
-    if (
-      masterSearchQuery ||
-      masterStatusFilter !== 'All' ||
-      masterShiftFilter !== 'All' ||
-      masterDateStart ||
-      masterDateEnd ||
-      masterAgentFilter ||
-      masterBreakViolationFilter !== 'All' ||
-      masterOvertimeFilter !== 'All' ||
-      masterReasonFilter !== 'All' ||
-      masterEarlyLoginFilter !== 'All' ||
-      masterEarlyLogoutFilter !== 'All' ||
-      masterQuickLoginMin ||
-      masterQuickBreakMin ||
-      masterQuickTalkMin ||
-      masterQuickInboundMin ||
-      masterQuickOutboundMin
-    ) {
-      result = masterData.filter(d => {
-        const lowerName = (d.userName || '').toLowerCase();
-        const lowerId = (d.userId || '').toLowerCase();
-        const lowerReason = (d.reason || '').toLowerCase();
-        const entryDate = formatDateInput(new Date(d.date));
-        const matchesSmartDate = dateToken ? entryDate === dateToken : true;
-        const matchesSmartTokens = keywordTokens.length
-          ? keywordTokens.every(t =>
-              lowerName.includes(t) ||
-              lowerId.includes(t) ||
-              lowerReason.includes(t) ||
-              d.status.toLowerCase().includes(t) ||
-              d.shiftType.toLowerCase().includes(t)
-            )
-          : true;
-
-        const matchesSearch = !masterSearchQuery || (matchesSmartDate && matchesSmartTokens);
-        const matchesStatus = masterStatusFilter === 'All' ? true : d.status === masterStatusFilter;
-        const matchesShift = masterShiftFilter === 'All' ? true : d.shiftType === masterShiftFilter;
-
-        let matchesDate = true;
-        if (masterDateStart) {
-          const start = new Date(masterDateStart);
-          start.setHours(0, 0, 0, 0);
-          matchesDate = matchesDate && new Date(d.date) >= start;
-        }
-        if (masterDateEnd) {
-          const end = new Date(masterDateEnd);
-          end.setHours(23, 59, 59, 999);
-          matchesDate = matchesDate && new Date(d.date) <= end;
-        }
-
-        const agentFilterRaw = masterAgentFilter.trim();
-        const agentFilterLower = agentFilterRaw.toLowerCase();
-        const agentIdToken = (agentFilterRaw.match(/\(([^)]+)\)/)?.[1] || '').trim().toLowerCase();
-        const agentNameToken = agentFilterRaw.replace(/\([^)]*\)/g, '').trim().toLowerCase();
-        const matchesAgent = agentFilterRaw
-          ? (
-              (agentNameToken && lowerName.includes(agentNameToken)) ||
-              (agentIdToken && lowerId.includes(agentIdToken)) ||
-              lowerName.includes(agentFilterLower) ||
-              lowerId.includes(agentFilterLower)
-            )
-          : true;
-
-        const breakSec = timeToSeconds(d.pause || '00:00:00') + timeToSeconds(d.dispo || '00:00:00') + timeToSeconds(d.dead || '00:00:00');
-        const breakLimit = d.shiftType === 'Full Day' ? 7200 : 2700;
-        const isBreakExceeded = breakSec > breakLimit;
-        const matchesBreakViolation = masterBreakViolationFilter === 'All'
-          ? true
-          : masterBreakViolationFilter === 'Yes'
-            ? isBreakExceeded
-            : !isBreakExceeded;
-
-        const loginSec = timeToSeconds(d.currentLogin || '00:00:00');
-        const shiftBase = d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
-        const isOvertime = loginSec > shiftBase;
-        const matchesOvertime = masterOvertimeFilter === 'All'
-          ? true
-          : masterOvertimeFilter === 'Yes'
-            ? isOvertime
-            : !isOvertime;
-
-        const hasReason = !!(d.reason && d.reason.trim());
-        const matchesReason = masterReasonFilter === 'All'
-          ? true
-          : masterReasonFilter === 'Yes'
-            ? hasReason
-            : !hasReason;
-
-        const loginTimeSec = timeToSeconds(d.loginTimestamp || '00:00:00');
-        const logoutTimeSec = timeToSeconds(d.logoutTimestamp || '00:00:00');
-        const earlyLoginThreshold = 9 * 3600;
-        const earlyLogoutThreshold = d.shiftType === 'Full Day' ? (18 * 3600) : (13.5 * 3600);
-        const isEarlyLogin = loginTimeSec > 0 && loginTimeSec < earlyLoginThreshold;
-        const isEarlyLogout = logoutTimeSec > 0 && logoutTimeSec < earlyLogoutThreshold;
-        const matchesEarlyLogin = masterEarlyLoginFilter === 'All'
-          ? true
-          : masterEarlyLoginFilter === 'Yes'
-            ? isEarlyLogin
-            : !isEarlyLogin;
-        const matchesEarlyLogout = masterEarlyLogoutFilter === 'All'
-          ? true
-          : masterEarlyLogoutFilter === 'Yes'
-            ? isEarlyLogout
-            : !isEarlyLogout;
-
-        const matchesQuickLogin = masterQuickLoginMin ? loginSec >= Number(masterQuickLoginMin) * 60 : true;
-        const matchesQuickBreak = masterQuickBreakMin ? breakSec >= Number(masterQuickBreakMin) * 60 : true;
-        const matchesQuickTalk = masterQuickTalkMin ? timeToSeconds(d.talk || '00:00:00') >= Number(masterQuickTalkMin) * 60 : true;
-        const matchesQuickInbound = masterQuickInboundMin ? (d.inbound || 0) >= Number(masterQuickInboundMin) : true;
-        const matchesQuickOutbound = masterQuickOutboundMin ? (d.outbound || 0) >= Number(masterQuickOutboundMin) : true;
-
-        return (
-          matchesSearch &&
-          matchesStatus &&
-          matchesShift &&
-          matchesDate &&
-          matchesAgent &&
-          matchesBreakViolation &&
-          matchesOvertime &&
-          matchesReason &&
-          matchesEarlyLogin &&
-          matchesEarlyLogout &&
-          matchesQuickLogin &&
-          matchesQuickBreak &&
-          matchesQuickTalk &&
-          matchesQuickInbound &&
-          matchesQuickOutbound
-        );
-      });
-    }
-
-    const sorted = [...result];
-    sorted.sort((a, b) => {
-      if (masterSortBy === 'break') {
-        const aBreak = timeToSeconds(a.pause || '00:00:00') + timeToSeconds(a.dispo || '00:00:00') + timeToSeconds(a.dead || '00:00:00');
-        const bBreak = timeToSeconds(b.pause || '00:00:00') + timeToSeconds(b.dispo || '00:00:00') + timeToSeconds(b.dead || '00:00:00');
-        return bBreak - aBreak;
-      }
-      if (masterSortBy === 'ot') {
-        const aLogin = timeToSeconds(a.currentLogin || '00:00:00');
-        const bLogin = timeToSeconds(b.currentLogin || '00:00:00');
-        const aBase = a.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
-        const bBase = b.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
-        return (bLogin - bBase) - (aLogin - aBase);
-      }
-      if (masterSortBy === 'inbound') return (b.inbound || 0) - (a.inbound || 0);
-      if (masterSortBy === 'outbound') return (b.outbound || 0) - (a.outbound || 0);
-      if (masterSortBy === 'talk') return timeToSeconds(b.talk || '00:00:00') - timeToSeconds(a.talk || '00:00:00');
-      return computeEntryScore(a) - computeEntryScore(b);
-    });
-
-    return sorted;
-  }, [
-    masterData,
-    masterSearchQuery,
-    masterStatusFilter,
-    masterShiftFilter,
-    masterDateStart,
-    masterDateEnd,
-    masterAgentFilter,
-    masterBreakViolationFilter,
-    masterOvertimeFilter,
-    masterReasonFilter,
-    masterEarlyLoginFilter,
-    masterEarlyLogoutFilter,
-    masterQuickLoginMin,
-    masterQuickBreakMin,
-    masterQuickTalkMin,
-    masterQuickInboundMin,
-    masterQuickOutboundMin,
-    masterSortBy
-  ]);
-
-  // Paginated master data (client-side pagination for performance)
-  const paginatedMasterData = useMemo(() => {
-    const startIdx = (masterCurrentPage - 1) * masterPageSize;
-    const endIdx = startIdx + masterPageSize;
-    return filteredMasterData.slice(startIdx, endIdx);
-  }, [filteredMasterData, masterCurrentPage, masterPageSize]);
-
-  const masterTotalPages = useMemo(() => Math.ceil(filteredMasterData.length / masterPageSize), [filteredMasterData.length, masterPageSize]);
 
   const otEntries = useMemo(() => {
     return masterData.filter(d => timeToSeconds(d.currentLogin) > (d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600) && (d.status === 'Approved'));
@@ -943,244 +769,317 @@ export default function App() {
     return result;
   }, [otApprovalEntries, otApprovalSearchQuery, otApprovalDateStart, otApprovalDateEnd, otApprovalShiftFilter]);
 
-  const getRangeBounds = (range: '1d' | '2d' | '7d' | '30d' | '365d') => {
+  const getOverviewBounds = () => {
     const end = new Date();
     end.setHours(23, 59, 59, 999);
     const start = new Date(end);
-    const days = range === '1d' ? 1 : range === '2d' ? 2 : range === '7d' ? 7 : range === '30d' ? 30 : 365;
-    start.setDate(start.getDate() - (days - 1));
-    start.setHours(0, 0, 0, 0);
-    return { start, end };
+    if (overviewRange === 'today') {
+      start.setHours(0, 0, 0, 0);
+      return { start, end };
+    }
+    if (overviewRange === 'weekly') {
+      start.setDate(start.getDate() - 6);
+      start.setHours(0, 0, 0, 0);
+      return { start, end };
+    }
+    const customStart = overviewCustomStart ? new Date(overviewCustomStart) : new Date(end);
+    const customEnd = overviewCustomEnd ? new Date(overviewCustomEnd) : new Date(end);
+    customStart.setHours(0, 0, 0, 0);
+    customEnd.setHours(23, 59, 59, 999);
+    return { start: customStart, end: customEnd };
   };
 
-  const applyDashboardRangeToMaster = () => {
-    const { start, end } = getRangeBounds(adminDashboardRange);
-    setMasterDateStart(formatDateInput(start));
-    setMasterDateEnd(formatDateInput(end));
+  const overviewRangeBounds = useMemo(getOverviewBounds, [overviewCustomEnd, overviewCustomStart, overviewRange]);
+
+  const overviewEntries = useMemo(() => {
+    if (user?.role !== 'admin') return [] as TimeData[];
+    return (masterDataServer || []).filter(d => {
+      const entryDate = new Date(d.date);
+      return entryDate >= overviewRangeBounds.start && entryDate <= overviewRangeBounds.end;
+    });
+  }, [masterDataServer, overviewRangeBounds.end, overviewRangeBounds.start, user]);
+
+  const overviewDerived = useMemo(() => {
+    const derived = overviewEntries.map(d => {
+      const loginSec = timeToSeconds(d.currentLogin || '00:00:00');
+      const talkSec = timeToSeconds(d.talk || '00:00:00');
+      const breakSec = timeToSeconds(d.pause || '00:00:00') + timeToSeconds(d.dispo || '00:00:00') + timeToSeconds(d.dead || '00:00:00');
+      const shiftBase = d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+      const volume = (d.inbound || 0) + (d.outbound || 0);
+      return {
+        entry: d,
+        loginSec,
+        talkSec,
+        breakSec,
+        shiftBase,
+        volume,
+        hasReason: !!(d.reason && d.reason.trim())
+      };
+    });
+
+    if (!derived.length) {
+      return {
+        needsAttention: [],
+        topPerformers: [],
+        pendingOt: [],
+        stats: {
+          totalUsers: 0,
+          needsUsers: 0,
+          topUsers: 0,
+          pendingOtCount: 0,
+          breakExceededUsers: 0
+        },
+        focusIds: {
+          needs: new Set<string>(),
+          top: new Set<string>(),
+          pendingOt: new Set<string>()
+        }
+      };
+    }
+
+    const avgTalkSec = derived.reduce((acc, curr) => acc + curr.talkSec, 0) / derived.length;
+    const avgVolume = derived.reduce((acc, curr) => acc + curr.volume, 0) / derived.length;
+    const otRejectedCounts = new Map<string, number>();
+
+    for (const item of derived) {
+      const isOt = item.loginSec > item.shiftBase;
+      if (isOt && item.entry.status === 'Rejected') {
+        otRejectedCounts.set(item.entry.userId, (otRejectedCounts.get(item.entry.userId) || 0) + 1);
+      }
+    }
+
+    const needsAttention = derived.filter(item => {
+      const breakExceeded = item.breakSec > 2 * 3600;
+      const underShift = item.loginSec < item.shiftBase;
+      const lowActivity = item.volume < 5 && item.talkSec < 10 * 60;
+      const repeatedOtMisuse = (otRejectedCounts.get(item.entry.userId) || 0) >= 2;
+      return breakExceeded || underShift || lowActivity || repeatedOtMisuse;
+    });
+
+    const topPerformers = derived.filter(item => {
+      const isNeeds = needsAttention.some(n => n.entry.id === item.entry.id);
+      if (isNeeds) return false;
+      const breakOk = item.breakSec <= 2 * 3600;
+      const loginOk = item.loginSec >= item.shiftBase;
+      const activityOk = item.volume >= avgVolume && item.talkSec >= avgTalkSec;
+      return breakOk && loginOk && activityOk;
+    });
+
+    const pendingOt = derived.filter(item => item.loginSec > item.shiftBase && item.entry.status === 'Pending');
+
+    const uniqueUsers = (items: typeof derived) => new Set(items.map(i => i.entry.userId)).size;
+    const breakExceededUsers = new Set(derived.filter(item => item.breakSec > 2 * 3600).map(item => item.entry.userId)).size;
+
+    return {
+      needsAttention,
+      topPerformers,
+      pendingOt,
+      stats: {
+        totalUsers: uniqueUsers(derived),
+        needsUsers: uniqueUsers(needsAttention),
+        topUsers: uniqueUsers(topPerformers),
+        pendingOtCount: pendingOt.length,
+        breakExceededUsers
+      },
+      focusIds: {
+        needs: new Set(needsAttention.map(item => item.entry.id)),
+        top: new Set(topPerformers.map(item => item.entry.id)),
+        pendingOt: new Set(pendingOt.map(item => item.entry.id))
+      }
+    };
+  }, [overviewEntries]);
+
+  const filteredMasterData = useMemo(() => {
+    let result = masterData.filter(entry => !isBlankEntry(entry));
+
+    if (masterFocusMode !== 'all') {
+      const focusIds = masterFocusMode === 'needs'
+        ? overviewDerived.focusIds.needs
+        : masterFocusMode === 'top'
+          ? overviewDerived.focusIds.top
+          : overviewDerived.focusIds.pendingOt;
+      result = result.filter(entry => focusIds.has(entry.id));
+    }
+
+    if (masterSearchQuery) {
+      const q = masterSearchQuery.toLowerCase();
+      result = result.filter(d =>
+        d.userName.toLowerCase().includes(q) ||
+        d.userId.toLowerCase().includes(q) ||
+        new Date(d.date).toLocaleDateString('en-GB').includes(q)
+      );
+    }
+
+    if (masterAgentFilter) {
+      const q = masterAgentFilter.toLowerCase();
+      result = result.filter(d =>
+        d.userName.toLowerCase().includes(q) ||
+        d.userId.toLowerCase().includes(q)
+      );
+    }
+
+    if (masterStatusFilter !== 'All') {
+      result = result.filter(d => d.status === masterStatusFilter);
+    }
+
+    if (masterShiftFilter !== 'All') {
+      result = result.filter(d => d.shiftType === masterShiftFilter);
+    }
+
+    if (masterDateStart) {
+      const start = new Date(masterDateStart);
+      start.setHours(0, 0, 0, 0);
+      result = result.filter(d => new Date(d.date) >= start);
+    }
+
+    if (masterDateEnd) {
+      const end = new Date(masterDateEnd);
+      end.setHours(23, 59, 59, 999);
+      result = result.filter(d => new Date(d.date) <= end);
+    }
+
+    if (masterBreakViolationFilter !== 'All') {
+      result = result.filter(d => {
+        const breakSec = timeToSeconds(d.pause || '00:00:00') + timeToSeconds(d.dispo || '00:00:00') + timeToSeconds(d.dead || '00:00:00');
+        const breakLimit = d.shiftType === 'Full Day' ? 7200 : 2700;
+        const exceeded = breakSec > breakLimit;
+        return masterBreakViolationFilter === 'Yes' ? exceeded : !exceeded;
+      });
+    }
+
+    if (masterOvertimeFilter !== 'All') {
+      result = result.filter(d => {
+        const loginSec = timeToSeconds(d.currentLogin || '00:00:00');
+        const shiftBase = d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+        const overtime = loginSec > shiftBase;
+        return masterOvertimeFilter === 'Yes' ? overtime : !overtime;
+      });
+    }
+
+    if (masterReasonFilter !== 'All') {
+      result = result.filter(d => {
+        const hasReason = !!(d.reason && d.reason.trim());
+        return masterReasonFilter === 'Provided' ? hasReason : !hasReason;
+      });
+    }
+
+    const quickLoginMin = Number(masterQuickLoginMin);
+    if (!Number.isNaN(quickLoginMin) && quickLoginMin > 0) {
+      result = result.filter(d => timeToSeconds(d.currentLogin || '00:00:00') >= quickLoginMin * 60);
+    }
+
+    const quickBreakMin = Number(masterQuickBreakMin);
+    if (!Number.isNaN(quickBreakMin) && quickBreakMin > 0) {
+      result = result.filter(d => {
+        const breakSec = timeToSeconds(d.pause || '00:00:00') + timeToSeconds(d.dispo || '00:00:00') + timeToSeconds(d.dead || '00:00:00');
+        return breakSec >= quickBreakMin * 60;
+      });
+    }
+
+    const quickTalkMin = Number(masterQuickTalkMin);
+    if (!Number.isNaN(quickTalkMin) && quickTalkMin > 0) {
+      result = result.filter(d => timeToSeconds(d.talk || '00:00:00') >= quickTalkMin * 60);
+    }
+
+    const quickInboundMin = Number(masterQuickInboundMin);
+    if (!Number.isNaN(quickInboundMin) && quickInboundMin > 0) {
+      result = result.filter(d => (d.inbound || 0) >= quickInboundMin);
+    }
+
+    const quickOutboundMin = Number(masterQuickOutboundMin);
+    if (!Number.isNaN(quickOutboundMin) && quickOutboundMin > 0) {
+      result = result.filter(d => (d.outbound || 0) >= quickOutboundMin);
+    }
+
+    const sorted = [...result].sort((a, b) => {
+      if (masterSortBy === 'productivity') {
+        return computeEntryScore(a) - computeEntryScore(b);
+      }
+      if (masterSortBy === 'break') {
+        const aBreak = timeToSeconds(a.pause || '00:00:00') + timeToSeconds(a.dispo || '00:00:00') + timeToSeconds(a.dead || '00:00:00');
+        const bBreak = timeToSeconds(b.pause || '00:00:00') + timeToSeconds(b.dispo || '00:00:00') + timeToSeconds(b.dead || '00:00:00');
+        return bBreak - aBreak;
+      }
+      if (masterSortBy === 'ot') {
+        const aLogin = timeToSeconds(a.currentLogin || '00:00:00');
+        const bLogin = timeToSeconds(b.currentLogin || '00:00:00');
+        const aShift = a.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+        const bShift = b.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+        return (bLogin - bShift) - (aLogin - aShift);
+      }
+      if (masterSortBy === 'talk') {
+        return timeToSeconds(b.talk || '00:00:00') - timeToSeconds(a.talk || '00:00:00');
+      }
+      if (masterSortBy === 'inbound') {
+        return (b.inbound || 0) - (a.inbound || 0);
+      }
+      if (masterSortBy === 'outbound') {
+        return (b.outbound || 0) - (a.outbound || 0);
+      }
+      return 0;
+    });
+
+    return sorted;
+  }, [
+    masterData,
+    masterSearchQuery,
+    masterAgentFilter,
+    masterStatusFilter,
+    masterShiftFilter,
+    masterDateStart,
+    masterDateEnd,
+    masterBreakViolationFilter,
+    masterOvertimeFilter,
+    masterReasonFilter,
+    masterQuickLoginMin,
+    masterQuickBreakMin,
+    masterQuickTalkMin,
+    masterQuickInboundMin,
+    masterQuickOutboundMin,
+    masterSortBy,
+    masterFocusMode,
+    overviewDerived
+  ]);
+
+  // Paginated master data (client-side pagination for performance)
+  const paginatedMasterData = useMemo(() => {
+    const startIdx = (masterCurrentPage - 1) * masterPageSize;
+    const endIdx = startIdx + masterPageSize;
+    return filteredMasterData.slice(startIdx, endIdx);
+  }, [filteredMasterData, masterCurrentPage, masterPageSize]);
+
+  const masterTotalPages = useMemo(() => Math.ceil(filteredMasterData.length / masterPageSize), [filteredMasterData.length, masterPageSize]);
+
+  const applyOverviewRangeToMaster = () => {
+    setMasterDateStart(formatDateInput(overviewRangeBounds.start));
+    setMasterDateEnd(formatDateInput(overviewRangeBounds.end));
     setMasterSearchQuery('');
     setMasterAgentFilter('');
     setMasterShiftFilter('All');
   };
 
-  const adminDashboardStats = useMemo(() => {
-    if (user?.role !== 'admin') {
-      return {
-        entriesCount: 0,
-        totalUsers: 0,
-        totalLoginSec: 0,
-        totalTalkSec: 0,
-        totalCustomerTalkSec: 0,
-        totalHoldSec: 0,
-        totalBreakSec: 0,
-        totalInbound: 0,
-        totalOutbound: 0,
-        totalOtSec: 0,
-        breakExceededCount: 0,
-        reasonCount: 0,
-        underShiftCount: 0,
-        earlyLoginCount: 0,
-        earlyLogoutCount: 0,
-        otApplicantCount: 0,
-        statusCounts: { Approved: 0, Pending: 0, Rejected: 0, 'N/A': 0 },
-        shiftCounts: { 'Full Day': 0, 'Half Day': 0 },
-        users: [] as Array<{
-          userId: string;
-          userName: string;
-          entriesCount: number;
-          totalTalkSec: number;
-          totalCustomerTalkSec: number;
-          totalInbound: number;
-          totalOutbound: number;
-          breakExceededCount: number;
-          otCount: number;
-          breakUnder2hCount: number;
-          score: number;
-        }>,
-        topPerformer: null as null | { userId: string; userName: string; score: number },
-        bottomPerformer: null as null | { userId: string; userName: string; score: number }
-      };
-    }
-
-    const { start, end } = getRangeBounds(adminDashboardRange);
-    const data = (masterDataServer || []).filter(d => {
-      const entryDate = new Date(d.date);
-      return entryDate >= start && entryDate <= end;
-    });
-    const statusCounts: Record<EntryStatus, number> = { Approved: 0, Pending: 0, Rejected: 0, 'N/A': 0 };
-    const shiftCounts: Record<ShiftType, number> = { 'Full Day': 0, 'Half Day': 0 };
-    const usersMap = new Map<string, {
-      userId: string;
-      userName: string;
-      entriesCount: number;
-      totalTalkSec: number;
-      totalCustomerTalkSec: number;
-      totalInbound: number;
-      totalOutbound: number;
-      breakExceededCount: number;
-      otCount: number;
-      breakUnder2hCount: number;
-    }>();
-
-    let totalLoginSec = 0;
-    let totalTalkSec = 0;
-    let totalCustomerTalkSec = 0;
-    let totalHoldSec = 0;
-    let totalBreakSec = 0;
-    let totalInbound = 0;
-    let totalOutbound = 0;
-    let totalOtSec = 0;
-    let breakExceededCount = 0;
-    let reasonCount = 0;
-    let underShiftCount = 0;
-    let earlyLoginCount = 0;
-    let earlyLogoutCount = 0;
-    let otApplicantCount = 0;
-
-    for (const d of data) {
-      const loginSec = timeToSeconds(d.currentLogin || '00:00:00');
-      const talkSec = timeToSeconds(d.talk || '00:00:00');
-      const customerTalkSec = timeToSeconds(d.customerTalk || '00:00:00');
-      const holdSec = timeToSeconds(d.hold || '00:00:00');
-      const breakSec = timeToSeconds(d.pause || '00:00:00') + timeToSeconds(d.dispo || '00:00:00') + timeToSeconds(d.dead || '00:00:00');
-      const shiftBase = d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
-      const breakLimit = d.shiftType === 'Full Day' ? 7200 : 2700;
-      const otSec = Math.max(0, loginSec - shiftBase);
-      const isBreakExceeded = breakSec > breakLimit;
-      const hasReason = !!(d.reason && d.reason.trim());
-      const isUnderShift = loginSec < shiftBase;
-      const loginTimeSec = timeToSeconds(d.loginTimestamp || '00:00:00');
-      const logoutTimeSec = timeToSeconds(d.logoutTimestamp || '00:00:00');
-      const earlyLoginThreshold = 9 * 3600;
-      const earlyLogoutThreshold = d.shiftType === 'Full Day' ? (18 * 3600) : (13.5 * 3600);
-      const isEarlyLogin = loginTimeSec > 0 && loginTimeSec < earlyLoginThreshold;
-      const isEarlyLogout = logoutTimeSec > 0 && logoutTimeSec < earlyLogoutThreshold;
-      const isOtApplicant = loginSec > shiftBase && d.status === 'Pending';
-
-      totalLoginSec += loginSec;
-      totalTalkSec += talkSec;
-      totalCustomerTalkSec += customerTalkSec;
-      totalHoldSec += holdSec;
-      totalBreakSec += breakSec;
-      totalInbound += d.inbound || 0;
-      totalOutbound += d.outbound || 0;
-      totalOtSec += otSec;
-      if (isBreakExceeded) breakExceededCount += 1;
-      if (hasReason) reasonCount += 1;
-      if (isUnderShift) underShiftCount += 1;
-      if (isEarlyLogin) earlyLoginCount += 1;
-      if (isEarlyLogout) earlyLogoutCount += 1;
-      if (isOtApplicant) otApplicantCount += 1;
-
-      statusCounts[d.status] = (statusCounts[d.status] || 0) + 1;
-      shiftCounts[d.shiftType] = (shiftCounts[d.shiftType] || 0) + 1;
-
-      const existing = usersMap.get(d.userId) || {
-        userId: d.userId,
-        userName: d.userName || d.userId,
-        entriesCount: 0,
-        totalTalkSec: 0,
-        totalCustomerTalkSec: 0,
-        totalInbound: 0,
-        totalOutbound: 0,
-        breakExceededCount: 0,
-        otCount: 0,
-        breakUnder2hCount: 0
-      };
-
-      existing.entriesCount += 1;
-      existing.totalTalkSec += talkSec;
-      existing.totalCustomerTalkSec += customerTalkSec;
-      existing.totalInbound += d.inbound || 0;
-      existing.totalOutbound += d.outbound || 0;
-      if (isBreakExceeded) existing.breakExceededCount += 1;
-      if (loginSec > shiftBase) existing.otCount += 1;
-      if (breakSec < 2 * 3600) existing.breakUnder2hCount += 1;
-      usersMap.set(d.userId, existing);
-    }
-
-    const users = Array.from(usersMap.values());
-    const maxTalk = Math.max(0, ...users.map(u => u.totalTalkSec));
-    const maxCustomerTalk = Math.max(0, ...users.map(u => u.totalCustomerTalkSec));
-    const maxVolume = Math.max(0, ...users.map(u => u.totalInbound + u.totalOutbound));
-    const maxBreakExceeded = Math.max(0, ...users.map(u => u.breakExceededCount));
-
-    const normalize = (value: number, max: number) => max > 0 ? (value / max) * 100 : 0;
-    const scoredUsers = users.map(u => {
-      const talkScore = normalize(u.totalTalkSec, maxTalk);
-      const customerScore = normalize(u.totalCustomerTalkSec, maxCustomerTalk);
-      const volumeScore = normalize(u.totalInbound + u.totalOutbound, maxVolume);
-      const breakPenalty = normalize(u.breakExceededCount, maxBreakExceeded);
-      const score = Math.max(0, Math.min(100, (talkScore * 0.4) + (volumeScore * 0.3) + (customerScore * 0.2) - (breakPenalty * 0.1)));
-      return { ...u, score };
-    }).sort((a, b) => b.score - a.score);
-
-    const getMetricValue = (u: typeof scoredUsers[number], metric: typeof topPerformerMetric) => {
-      if (metric === 'inbound') return u.totalInbound;
-      if (metric === 'outbound') return u.totalOutbound;
-      if (metric === 'ot') return u.otCount;
-      if (metric === 'breakUnder2h') return u.breakUnder2hCount;
-      return u.score;
-    };
-
-    const pickByMetric = (metric: typeof topPerformerMetric, mode: 'max' | 'min') => {
-      if (!scoredUsers.length) return null;
-      return scoredUsers.reduce((best, curr) => {
-        if (!best) return curr;
-        const bestValue = getMetricValue(best, metric);
-        const currValue = getMetricValue(curr, metric);
-        return mode === 'max'
-          ? (currValue > bestValue ? curr : best)
-          : (currValue < bestValue ? curr : best);
-      }, null as null | typeof scoredUsers[number]);
-    };
-
-    const topPick = pickByMetric(topPerformerMetric, 'max');
-    const lowPick = pickByMetric(lowPerformerMetric, 'min');
-    const topPerformer = topPick ? { userId: topPick.userId, userName: topPick.userName, score: topPick.score } : null;
-    const bottomPerformer = lowPick ? { userId: lowPick.userId, userName: lowPick.userName, score: lowPick.score } : null;
-
-    return {
-      entriesCount: data.length,
-      totalUsers: users.length,
-      totalLoginSec,
-      totalTalkSec,
-      totalCustomerTalkSec,
-      totalHoldSec,
-      totalBreakSec,
-      totalInbound,
-      totalOutbound,
-      totalOtSec,
-      breakExceededCount,
-      reasonCount,
-      underShiftCount,
-      earlyLoginCount,
-      earlyLogoutCount,
-      otApplicantCount,
-      statusCounts,
-      shiftCounts,
-      users: scoredUsers,
-      topPerformer,
-      bottomPerformer
-    };
-  }, [adminDashboardRange, lowPerformerMetric, masterDataServer, topPerformerMetric, user]);
-
-  const getPerformerMetricLabel = (metric: typeof topPerformerMetric) => {
-    if (metric === 'inbound') return 'Inbound';
-    if (metric === 'outbound') return 'Outbound';
-    if (metric === 'ot') return 'OT Count';
-    if (metric === 'breakUnder2h') return 'Break <2h';
-    return 'Score';
+  const applyOverviewRangeToOtApprovals = () => {
+    setOtApprovalDateStart(formatDateInput(overviewRangeBounds.start));
+    setOtApprovalDateEnd(formatDateInput(overviewRangeBounds.end));
+    setOtApprovalShiftFilter('All');
+    setOtApprovalSearchQuery('');
   };
 
-  const getPerformerMetricValue = (userId: string | undefined, metric: typeof topPerformerMetric) => {
-    if (!userId) return 0;
-    const target = adminDashboardStats.users.find(u => u.userId === userId);
-    if (!target) return 0;
-    if (metric === 'inbound') return target.totalInbound;
-    if (metric === 'outbound') return target.totalOutbound;
-    if (metric === 'ot') return target.otCount;
-    if (metric === 'breakUnder2h') return target.breakUnder2hCount;
-    return Math.round(target.score);
+  const openNeedsAttention = () => {
+    applyOverviewRangeToMaster();
+    setMasterFocusMode('needs');
+    setActiveTab('all-logs');
+  };
+
+  const openTopPerformers = () => {
+    applyOverviewRangeToMaster();
+    setMasterFocusMode('top');
+    setActiveTab('all-logs');
+  };
+
+  const openPendingOt = () => {
+    applyOverviewRangeToOtApprovals();
+    setActiveTab('ot-admin');
   };
 
   const drillEntries = useMemo(() => {
@@ -1218,31 +1117,6 @@ export default function App() {
   useEffect(() => {
     if (user?.role === 'admin') { fetchMasterData(); fetchMigrations(); }
   }, [user, allUsers]);
-
-  useEffect(() => {
-    if (user?.role !== 'admin' || !masterDataServer.length) return;
-    const today = formatDateInput(new Date());
-    let otApplied = 0;
-    let breakExceededCount = 0;
-    let loginExceededCount = 0;
-    for (const d of masterDataServer) {
-      const entryDate = formatDateInput(new Date(d.date));
-      if (entryDate !== today) continue;
-      const loginSec = timeToSeconds(d.currentLogin || '00:00:00');
-      const shiftBase = d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
-      const breakSec = timeToSeconds(d.pause || '00:00:00') + timeToSeconds(d.dispo || '00:00:00') + timeToSeconds(d.dead || '00:00:00');
-      const breakLimit = d.shiftType === 'Full Day' ? 7200 : 2700;
-      if (loginSec > shiftBase) loginExceededCount += 1;
-      if (breakSec > breakLimit) breakExceededCount += 1;
-      if (loginSec > shiftBase && d.status === 'Pending') otApplied += 1;
-    }
-    const signature = `${today}|${otApplied}|${breakExceededCount}|${loginExceededCount}`;
-    if (signature === adminAlertSignature) return;
-    setAdminAlertSignature(signature);
-    if (otApplied || breakExceededCount || loginExceededCount) {
-      pushToast(`Today: OT applied ${otApplied}, break exceeded ${breakExceededCount}, login exceeded ${loginExceededCount}.`, 'info');
-    }
-  }, [adminAlertSignature, masterDataServer, user]);
 
   useEffect(() => {
     if (user?.role === 'admin') {
@@ -1287,7 +1161,7 @@ export default function App() {
   }, [detailsSearchQuery, detailsDateStart, detailsDateEnd, detailsStatusFilter, detailsShiftFilter]);
 
   const filteredDetailsEntries = useMemo(() => {
-    let result = entries;
+    let result = entries.filter(e => !isBlankEntry(e));
 
     // 1. Text Search (Expanded)
     if (detailsSearchQuery) {
@@ -1502,9 +1376,6 @@ export default function App() {
           </div>
         </div>
       )}
-
-
-
       {showMigrationModal && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl p-8 space-y-6 animate-in zoom-in duration-300">
@@ -1576,7 +1447,7 @@ export default function App() {
               <button onClick={() => { setAdminViewingUserId(null); setActiveTab('admin-dashboard'); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'admin-dashboard' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:bg-white/5'}`}><LayoutGridIcon size={16} /> Admin Dashboard</button>
               <button onClick={() => { setAdminViewingUserId(null); setActiveTab('admin'); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'admin' && !adminViewingUserId ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:bg-white/5'}`}><UsersIcon size={16} /> Team Hub</button>
               <button onClick={() => { setAdminViewingUserId(null); setActiveTab('ot-admin'); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'ot-admin' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:bg-white/5'}`}><ZapIcon size={16} /> OT Approvals</button>
-              <button onClick={() => { setAdminViewingUserId(null); setActiveTab('all-logs'); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'all-logs' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:bg-white/5'}`}><LayersIcon size={16} /> Master Stream</button>
+              <button onClick={() => { setAdminViewingUserId(null); setMasterFocusMode('all'); setActiveTab('all-logs'); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'all-logs' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:bg-white/5'}`}><LayersIcon size={16} /> Master Stream</button>
             </>
           )}
           {user.role !== 'admin' && (
@@ -2076,328 +1947,136 @@ export default function App() {
               <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
                 <div>
                   <h2 className="text-xl font-black uppercase dark:text-white">Admin Dashboard</h2>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">KPI summary, compliance, and drill-down</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Overview page for daily decisions</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <button onClick={() => setAdminDashboardRange('1d')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${adminDashboardRange === '1d' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>1 Day</button>
-                  <button onClick={() => setAdminDashboardRange('2d')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${adminDashboardRange === '2d' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>2 Days</button>
-                  <button onClick={() => setAdminDashboardRange('7d')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${adminDashboardRange === '7d' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>Weekly</button>
-                  <button onClick={() => setAdminDashboardRange('30d')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${adminDashboardRange === '30d' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>Monthly</button>
-                  <button onClick={() => setAdminDashboardRange('365d')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${adminDashboardRange === '365d' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>Yearly</button>
+                  <button onClick={() => setOverviewRange('today')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${overviewRange === 'today' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>Today</button>
+                  <button onClick={() => setOverviewRange('weekly')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${overviewRange === 'weekly' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>Weekly</button>
+                  <button onClick={() => setOverviewRange('custom')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${overviewRange === 'custom' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>Custom</button>
                 </div>
               </div>
 
+              {overviewRange === 'custom' && (
+                <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border dark:border-slate-800 shadow-sm">
+                  <div className="flex flex-col md:flex-row gap-4">
+                    <div className="flex-1 space-y-1">
+                      <label className="text-[9px] font-black text-slate-400 uppercase ml-2">From Date</label>
+                      <input type="date" value={overviewCustomStart} onChange={(e) => setOverviewCustomStart(e.target.value)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner" />
+                    </div>
+                    <div className="flex-1 space-y-1">
+                      <label className="text-[9px] font-black text-slate-400 uppercase ml-2">To Date</label>
+                      <input type="date" value={overviewCustomEnd} onChange={(e) => setOverviewCustomEnd(e.target.value)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="dashboard bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-sm border dark:border-slate-800">
-                <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-6">
-                  <div>
-                    <h3 className="text-lg font-black uppercase dark:text-white">KPI Overview</h3>
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Entries: {adminDashboardStats.entriesCount} | Users: {adminDashboardStats.totalUsers}</p>
+                <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Total Login Users</p>
+                    <div className="text-2xl font-black text-indigo-600 mt-2">{overviewDerived.stats.totalUsers}</div>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Needs Attention</p>
+                    <div className="text-2xl font-black text-rose-600 mt-2">{overviewDerived.stats.needsUsers}</div>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Top Performers</p>
+                    <div className="text-2xl font-black text-emerald-600 mt-2">{overviewDerived.stats.topUsers}</div>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">OT Requests Pending</p>
+                    <div className="text-2xl font-black text-amber-600 mt-2">{overviewDerived.stats.pendingOtCount}</div>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Break Exceeded Users</p>
+                    <div className="text-2xl font-black text-rose-600 mt-2">{overviewDerived.stats.breakExceededUsers}</div>
                   </div>
                 </div>
 
-                {adminDashboardStats.entriesCount === 0 ? (
-                  <div className="px-6 py-16 text-center text-slate-400 font-bold uppercase tracking-widest opacity-40">No data available for dashboard</div>
-                ) : (
-                  <>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-                      <button
-                        onClick={() => {
-                          applyDashboardRangeToMaster();
-                          setMasterBreakViolationFilter('All');
-                          setMasterOvertimeFilter('All');
-                          setMasterStatusFilter('All');
-                          setMasterReasonFilter('All');
-                          setMasterEarlyLoginFilter('All');
-                          setMasterEarlyLogoutFilter('All');
-                          setMasterSortBy('productivity');
-                          setActiveTab('all-logs');
-                        }}
-                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
-                      >
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Users Overview</p>
-                        <div className="text-2xl font-black text-indigo-600 mt-2">{adminDashboardStats.totalUsers}</div>
-                      </button>
-                      <button
-                        onClick={() => {
-                          applyDashboardRangeToMaster();
-                          setMasterBreakViolationFilter('Yes');
-                          setMasterOvertimeFilter('All');
-                          setMasterStatusFilter('All');
-                          setMasterReasonFilter('All');
-                          setMasterEarlyLoginFilter('All');
-                          setMasterEarlyLogoutFilter('All');
-                          setActiveTab('all-logs');
-                        }}
-                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
-                      >
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Break Exceeded</p>
-                        <div className="text-2xl font-black text-rose-600 mt-2">{adminDashboardStats.breakExceededCount}</div>
-                      </button>
-                      <button
-                        onClick={() => {
-                          applyDashboardRangeToMaster();
-                          setMasterOvertimeFilter('Yes');
-                          setMasterStatusFilter('Pending');
-                          setMasterBreakViolationFilter('All');
-                          setMasterReasonFilter('All');
-                          setMasterEarlyLoginFilter('All');
-                          setMasterEarlyLogoutFilter('All');
-                          setActiveTab('all-logs');
-                        }}
-                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
-                      >
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Total OT Applicants</p>
-                        <div className="text-2xl font-black text-amber-600 mt-2">{adminDashboardStats.otApplicantCount}</div>
-                      </button>
-                      <button
-                        onClick={() => {
-                          applyDashboardRangeToMaster();
-                          setMasterSortBy('inbound');
-                          setMasterStatusFilter('All');
-                          setMasterBreakViolationFilter('All');
-                          setMasterOvertimeFilter('All');
-                          setMasterReasonFilter('All');
-                          setMasterEarlyLoginFilter('All');
-                          setMasterEarlyLogoutFilter('All');
-                          setActiveTab('all-logs');
-                        }}
-                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
-                      >
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Inbound Total</p>
-                        <div className="text-2xl font-black text-indigo-600 mt-2">{adminDashboardStats.totalInbound}</div>
-                      </button>
-                      <button
-                        onClick={() => {
-                          applyDashboardRangeToMaster();
-                          setMasterSortBy('outbound');
-                          setMasterStatusFilter('All');
-                          setMasterBreakViolationFilter('All');
-                          setMasterOvertimeFilter('All');
-                          setMasterReasonFilter('All');
-                          setMasterEarlyLoginFilter('All');
-                          setMasterEarlyLogoutFilter('All');
-                          setActiveTab('all-logs');
-                        }}
-                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
-                      >
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Outbound Total</p>
-                        <div className="text-2xl font-black text-indigo-600 mt-2">{adminDashboardStats.totalOutbound}</div>
-                      </button>
-                      <button
-                        onClick={() => {
-                          applyDashboardRangeToMaster();
-                          setMasterReasonFilter('Yes');
-                          setMasterStatusFilter('All');
-                          setMasterBreakViolationFilter('All');
-                          setMasterOvertimeFilter('All');
-                          setMasterEarlyLoginFilter('All');
-                          setMasterEarlyLogoutFilter('All');
-                          setActiveTab('all-logs');
-                        }}
-                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
-                      >
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Reason Count</p>
-                        <div className="text-2xl font-black text-emerald-600 mt-2">{adminDashboardStats.reasonCount}</div>
-                      </button>
-                      <button
-                        onClick={() => {
-                          applyDashboardRangeToMaster();
-                          setMasterShiftFilter('Full Day');
-                          setMasterStatusFilter('All');
-                          setMasterBreakViolationFilter('All');
-                          setMasterOvertimeFilter('All');
-                          setMasterReasonFilter('All');
-                          setMasterEarlyLoginFilter('All');
-                          setMasterEarlyLogoutFilter('All');
-                          setActiveTab('all-logs');
-                        }}
-                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
-                      >
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Full Day Count</p>
-                        <div className="text-2xl font-black text-indigo-600 mt-2">{adminDashboardStats.shiftCounts['Full Day']}</div>
-                      </button>
-                      <button
-                        onClick={() => {
-                          applyDashboardRangeToMaster();
-                          setMasterShiftFilter('Half Day');
-                          setMasterStatusFilter('All');
-                          setMasterBreakViolationFilter('All');
-                          setMasterOvertimeFilter('All');
-                          setMasterReasonFilter('All');
-                          setMasterEarlyLoginFilter('All');
-                          setMasterEarlyLogoutFilter('All');
-                          setActiveTab('all-logs');
-                        }}
-                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
-                      >
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Half Day Count</p>
-                        <div className="text-2xl font-black text-amber-600 mt-2">{adminDashboardStats.shiftCounts['Half Day']}</div>
-                      </button>
-                      <button
-                        onClick={() => {
-                          applyDashboardRangeToMaster();
-                          setMasterOvertimeFilter('No');
-                          setMasterStatusFilter('All');
-                          setMasterBreakViolationFilter('All');
-                          setMasterReasonFilter('All');
-                          setMasterEarlyLoginFilter('All');
-                          setMasterEarlyLogoutFilter('All');
-                          setActiveTab('all-logs');
-                        }}
-                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
-                      >
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Under-Shift Logins</p>
-                        <div className="text-2xl font-black text-rose-600 mt-2">{adminDashboardStats.underShiftCount}</div>
-                      </button>
-                      <button
-                        onClick={() => {
-                          applyDashboardRangeToMaster();
-                          setMasterEarlyLoginFilter('Yes');
-                          setMasterStatusFilter('All');
-                          setMasterBreakViolationFilter('All');
-                          setMasterOvertimeFilter('All');
-                          setMasterReasonFilter('All');
-                          setMasterEarlyLogoutFilter('All');
-                          setActiveTab('all-logs');
-                        }}
-                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
-                      >
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Early Login</p>
-                        <div className="text-2xl font-black text-indigo-600 mt-2">{adminDashboardStats.earlyLoginCount}</div>
-                      </button>
-                      <button
-                        onClick={() => {
-                          applyDashboardRangeToMaster();
-                          setMasterEarlyLogoutFilter('Yes');
-                          setMasterStatusFilter('All');
-                          setMasterBreakViolationFilter('All');
-                          setMasterOvertimeFilter('All');
-                          setMasterReasonFilter('All');
-                          setMasterEarlyLoginFilter('All');
-                          setActiveTab('all-logs');
-                        }}
-                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left"
-                      >
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Early Logout</p>
-                        <div className="text-2xl font-black text-indigo-600 mt-2">{adminDashboardStats.earlyLogoutCount}</div>
-                      </button>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
+                  <div className="p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center justify-between mb-4">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-rose-500">Needs Attention</p>
+                      <button onClick={openNeedsAttention} className="text-[9px] font-black uppercase text-rose-600">View All</button>
                     </div>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
-                      <div className="lg:col-span-2 p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
-                        <div className="flex items-center justify-between mb-4">
-                          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Status Mix</p>
-                          <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Approved / Pending / Rejected</p>
-                        </div>
-                        <div className="h-3 w-full rounded-full overflow-hidden bg-slate-200 dark:bg-slate-800">
-                          <div className="h-full bg-emerald-500" style={{ width: `${(adminDashboardStats.statusCounts.Approved / Math.max(1, adminDashboardStats.entriesCount)) * 100}%` }} />
-                        </div>
-                        <div className="h-3 w-full rounded-full overflow-hidden bg-slate-200 dark:bg-slate-800 mt-2">
-                          <div className="h-full bg-amber-500" style={{ width: `${(adminDashboardStats.statusCounts.Pending / Math.max(1, adminDashboardStats.entriesCount)) * 100}%` }} />
-                        </div>
-                        <div className="h-3 w-full rounded-full overflow-hidden bg-slate-200 dark:bg-slate-800 mt-2">
-                          <div className="h-full bg-rose-500" style={{ width: `${(adminDashboardStats.statusCounts.Rejected / Math.max(1, adminDashboardStats.entriesCount)) * 100}%` }} />
-                        </div>
-                      </div>
-
-                      <div className="p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-4">Shift Mix</p>
-                        <div className="flex items-center justify-between text-xs font-bold">
-                          <span className="uppercase text-slate-500">Full Day</span>
-                          <span className="font-black text-indigo-600">{adminDashboardStats.shiftCounts['Full Day']}</span>
-                        </div>
-                        <div className="h-2 w-full rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden mt-2">
-                          <div className="h-full bg-indigo-500" style={{ width: `${(adminDashboardStats.shiftCounts['Full Day'] / Math.max(1, adminDashboardStats.entriesCount)) * 100}%` }} />
-                        </div>
-                        <div className="flex items-center justify-between text-xs font-bold mt-4">
-                          <span className="uppercase text-slate-500">Half Day</span>
-                          <span className="font-black text-amber-600">{adminDashboardStats.shiftCounts['Half Day']}</span>
-                        </div>
-                        <div className="h-2 w-full rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden mt-2">
-                          <div className="h-full bg-amber-500" style={{ width: `${(adminDashboardStats.shiftCounts['Half Day'] / Math.max(1, adminDashboardStats.entriesCount)) * 100}%` }} />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
-                      <div className="p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
-                        <div className="flex items-center justify-between mb-4">
-                          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Top Performer</p>
-                          <select
-                            value={topPerformerMetric}
-                            onChange={(e) => setTopPerformerMetric(e.target.value as any)}
-                            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-[9px] font-black uppercase px-2 py-1"
-                          >
-                            <option value="score">Score</option>
-                            <option value="inbound">Inbound</option>
-                            <option value="outbound">Outbound</option>
-                            <option value="ot">OT Count</option>
-                            <option value="breakUnder2h">Break &lt;2h</option>
-                          </select>
-                        </div>
-                        {adminDashboardStats.topPerformer ? (
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <div className="text-sm font-black uppercase dark:text-white">{adminDashboardStats.topPerformer.userName}</div>
-                              <div className="text-[10px] font-bold uppercase text-emerald-500">
-                                {getPerformerMetricLabel(topPerformerMetric)} {getPerformerMetricValue(adminDashboardStats.topPerformer.userId, topPerformerMetric)}
+                    {overviewDerived.needsAttention.length === 0 ? (
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">No records found</div>
+                    ) : (
+                      <div className="space-y-3">
+                        {overviewDerived.needsAttention.slice(0, 5).map(item => {
+                          const reasonText = item.entry.reason && item.entry.reason.trim()
+                            ? (item.entry.reason.trim().length > 18 ? `${item.entry.reason.trim().slice(0, 18)}...` : item.entry.reason.trim())
+                            : 'No Reason';
+                          return (
+                            <div key={item.entry.id} className="flex items-center justify-between">
+                              <div>
+                                <div className="text-xs font-black uppercase dark:text-white">{item.entry.userName || item.entry.userId}</div>
+                                <div className="text-[9px] text-slate-400 font-bold uppercase">{new Date(item.entry.date).toLocaleDateString()}</div>
                               </div>
-                            </div>
-                            <button
-                              onClick={() => {
-                                const target = allUsers.find(u => u.empId.toLowerCase() === adminDashboardStats.topPerformer?.userId.toLowerCase());
-                                if (target) { setAdminViewingUserId(target.id); setActiveTab('details'); }
-                              }}
-                              className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-[10px] font-black uppercase"
-                            >
-                              View Details
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="text-xs text-slate-400 uppercase">No performer data</div>
-                        )}
-                      </div>
-
-                      <div className="p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
-                        <div className="flex items-center justify-between mb-4">
-                          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Needs Attention</p>
-                          <select
-                            value={lowPerformerMetric}
-                            onChange={(e) => setLowPerformerMetric(e.target.value as any)}
-                            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-[9px] font-black uppercase px-2 py-1"
-                          >
-                            <option value="score">Score</option>
-                            <option value="inbound">Inbound</option>
-                            <option value="outbound">Outbound</option>
-                            <option value="ot">OT Count</option>
-                            <option value="breakUnder2h">Break &lt;2h</option>
-                          </select>
-                        </div>
-                        {adminDashboardStats.bottomPerformer ? (
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <div className="text-sm font-black uppercase dark:text-white">{adminDashboardStats.bottomPerformer.userName}</div>
-                              <div className="text-[10px] font-bold uppercase text-rose-500">
-                                {getPerformerMetricLabel(lowPerformerMetric)} {getPerformerMetricValue(adminDashboardStats.bottomPerformer.userId, lowPerformerMetric)}
+                              <div className="text-right">
+                                <div className="text-xs font-black text-rose-600 font-mono">{secondsToTime(item.breakSec)}</div>
+                                <div className="text-[9px] text-slate-400 font-bold">Login {secondsToTime(item.loginSec)}</div>
                               </div>
+                              <span className="px-2 py-1 rounded-full text-[8px] font-black uppercase bg-rose-100 text-rose-600">{reasonText}</span>
                             </div>
-                            <button
-                              onClick={() => {
-                                const target = allUsers.find(u => u.empId.toLowerCase() === adminDashboardStats.bottomPerformer?.userId.toLowerCase());
-                                if (target) { setAdminViewingUserId(target.id); setActiveTab('details'); }
-                              }}
-                              className="px-4 py-2 rounded-xl bg-rose-600 text-white text-[10px] font-black uppercase"
-                            >
-                              View Details
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="text-xs text-slate-400 uppercase">No performer data</div>
-                        )}
+                          );
+                        })}
                       </div>
+                    )}
+                  </div>
+
+                  <div className="p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center justify-between mb-4">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-emerald-500">Top Performers</p>
+                      <button onClick={openTopPerformers} className="text-[9px] font-black uppercase text-emerald-600">View All</button>
                     </div>
-                  </>
-                )}
+                    {overviewDerived.topPerformers.length === 0 ? (
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">No records found</div>
+                    ) : (
+                      <div className="space-y-3">
+                        {overviewDerived.topPerformers.slice(0, 5).map(item => (
+                          <div key={item.entry.id} className="flex items-center justify-between">
+                            <div>
+                              <div className="text-xs font-black uppercase dark:text-white">{item.entry.userName || item.entry.userId}</div>
+                              <div className="text-[9px] text-slate-400 font-bold uppercase">Inbound {item.entry.inbound || 0} · Outbound {item.entry.outbound || 0}</div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-xs font-black text-emerald-600 font-mono">{secondsToTime(item.breakSec)}</div>
+                              <div className="text-[9px] text-slate-400 font-bold">Break Time</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center justify-between mb-4">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-amber-500">Pending OT</p>
+                      <button onClick={openPendingOt} className="text-[9px] font-black uppercase text-amber-600">View All</button>
+                    </div>
+                    {overviewDerived.pendingOt.length === 0 ? (
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">No records found</div>
+                    ) : (
+                      <div className="space-y-3">
+                        {overviewDerived.pendingOt.slice(0, 5).map(item => (
+                          <div key={item.entry.id} className="flex items-center justify-between">
+                            <div>
+                              <div className="text-xs font-black uppercase dark:text-white">{item.entry.userName || item.entry.userId}</div>
+                              <div className="text-[9px] text-slate-400 font-bold uppercase">{new Date(item.entry.date).toLocaleDateString()} {new Date(item.entry.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-xs font-black text-amber-600 font-mono">{secondsToTime(Math.max(0, item.loginSec - item.shiftBase))}</div>
+                              <div className="text-[9px] text-slate-400 font-bold">OT Requested</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           )}
