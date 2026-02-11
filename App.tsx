@@ -826,7 +826,7 @@ export default function App() {
   const monthlyInboundPercent = Math.min(100, (monthlyStats.inbound / MILESTONES[2]) * 100);
   const previousInboundPercent = Math.min(100, (previousMonthInbound / MILESTONES[2]) * 100);
   const monthlyDeltaPercent = monthlyInboundPercent - previousInboundPercent;
-  const monthlyStatus = monthlyInboundPercent < 40 ? 'OFF TRACK' : monthlyInboundPercent < 70 ? 'AT RISK' : 'ON TRACK';
+  const monthlyStatus = monthlyInboundPercent < 70 ? 'OFF TRACK' : 'ON TRACK';
   const hasMonthlyData = selectedMonthEntries.length > 0;
 
   const milestoneProgress = useMemo(() => {
@@ -848,9 +848,7 @@ export default function App() {
   const selectedMonthLabel = `${MONTH_NAMES[selectedMonth]} ${selectedYear}`;
   const monthlyStatusClasses = monthlyStatus === 'ON TRACK'
     ? 'bg-emerald-500/20 text-emerald-200 border-emerald-500/40'
-    : monthlyStatus === 'AT RISK'
-      ? 'bg-amber-500/20 text-amber-200 border-amber-500/40'
-      : 'bg-rose-500/20 text-rose-200 border-rose-500/40';
+    : 'bg-rose-500/20 text-rose-200 border-rose-500/40';
   const monthlyDeltaLabel = `${monthlyDeltaPercent >= 0 ? '▲' : '▼'}${Math.abs(Math.round(monthlyDeltaPercent))}% vs last month`;
 
   const formatDateInput = (date: Date) => date.toISOString().split('T')[0];
@@ -2365,38 +2363,11 @@ export default function App() {
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Monthly Inbound Target</p>
-                      <h3 className="text-lg font-black tracking-tight">Monthly Inbound</h3>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className={`px-2 py-1 text-[8px] font-black uppercase tracking-widest rounded-full border ${monthlyStatusClasses}`}>
                         {monthlyStatus}
                       </span>
-                      <div className="relative flex items-center gap-1 rounded-xl border border-white/10 bg-white/5 px-2 py-1">
-                        <select
-                          value={selectedMonth}
-                          onChange={(e) => setSelectedMonth(parseInt(e.target.value, 10))}
-                          className="appearance-none bg-transparent text-[9px] font-black uppercase tracking-widest text-slate-200 pr-4"
-                        >
-                          {MONTH_NAMES.map((label, idx) => (
-                            <option key={label} value={idx} className="text-slate-900">
-                              {label}
-                            </option>
-                          ))}
-                        </select>
-                        <span className="text-[8px] font-black text-slate-500">-</span>
-                        <select
-                          value={selectedYear}
-                          onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
-                          className="appearance-none bg-transparent text-[9px] font-black uppercase tracking-widest text-slate-200 pr-4"
-                        >
-                          {yearOptions.map((year) => (
-                            <option key={year} value={year} className="text-slate-900">
-                              {year}
-                            </option>
-                          ))}
-                        </select>
-                        <span className="absolute right-2 text-[9px] text-slate-400">▼</span>
-                      </div>
                     </div>
                   </div>
 
@@ -2432,6 +2403,32 @@ export default function App() {
                     <div>
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Call Breakdown</p>
                       <h3 className="text-sm font-black uppercase tracking-widest">{selectedMonthLabel}</h3>
+                    </div>
+                    <div className="relative flex items-center gap-1 rounded-xl border border-white/10 bg-white/5 px-2 py-1">
+                      <select
+                        value={selectedMonth}
+                        onChange={(e) => setSelectedMonth(parseInt(e.target.value, 10))}
+                        className="appearance-none bg-transparent text-[9px] font-black uppercase tracking-widest text-slate-200 pr-4"
+                      >
+                        {MONTH_NAMES.map((label, idx) => (
+                          <option key={label} value={idx} className="text-slate-900">
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="text-[8px] font-black text-slate-500">-</span>
+                      <select
+                        value={selectedYear}
+                        onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
+                        className="appearance-none bg-transparent text-[9px] font-black uppercase tracking-widest text-slate-200 pr-4"
+                      >
+                        {yearOptions.map((year) => (
+                          <option key={year} value={year} className="text-slate-900">
+                            {year}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="absolute right-2 text-[9px] text-slate-400">▼</span>
                     </div>
                   </div>
 
