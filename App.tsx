@@ -219,6 +219,8 @@ export default function App() {
   const [showResetConfirm1, setShowResetConfirm1] = useState(false);
   const [showResetConfirm2, setShowResetConfirm2] = useState(false);
 
+  const lastMasterCountRef = React.useRef(0);
+
   // Throttle state for fetchMasterData (prevents excessive API calls)
   const lastFetchRef = React.useRef<number>(0);
   const pendingFetchRef = React.useRef<NodeJS.Timeout | null>(null);
@@ -248,6 +250,11 @@ export default function App() {
     try {
       const r = await fetch('/api/storage?action=getAllEntries');
       const d = await r.json();
+      const nextCount = (d.entries || []).length;
+      if (user?.role === 'admin' && lastMasterCountRef.current > 0 && nextCount > lastMasterCountRef.current) {
+        pushToast(`${nextCount - lastMasterCountRef.current} new entries synced`, 'info');
+      }
+      lastMasterCountRef.current = nextCount;
       setMasterDataServer(d.entries || []);
     } catch (e) {
       console.error('Failed to fetch master data', e);
@@ -1682,6 +1689,14 @@ export default function App() {
   }, [user, allUsers]);
 
   useEffect(() => {
+    if (user?.role !== 'admin') return;
+    const intervalId = setInterval(() => {
+      fetchMasterData();
+    }, 15000);
+    return () => clearInterval(intervalId);
+  }, [user]);
+
+  useEffect(() => {
     if (user?.role === 'admin') {
       const next = buildTodayMasterFilters();
       setMasterFiltersDraft(next);
@@ -2516,91 +2531,7 @@ export default function App() {
             </div>
           )}
 
-          {activeTab === 'ot-admin' && (
-            <div className="space-y-8 animate-in fade-in duration-500">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                <div>
-                  <h2 className="text-xl font-black uppercase tracking-wider dark:text-white">OT Approvals</h2>
-                  <p className="text-slate-400 text-[10px] font-bold mt-1 uppercase tracking-widest">Pending OT requests requiring approval</p>
-                </div>
-                <button
-                  onClick={() => setActiveTab('all-logs')}
-                  className="bg-slate-200 dark:bg-slate-800 px-4 py-3 rounded-xl text-[10px] font-black uppercase"
-                >
-                  Open Master Stream
-                </button>
-              </div>
 
-              <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border dark:border-slate-800 shadow-sm space-y-6">
-                <div className="overflow-x-auto rounded-[2rem] border dark:border-slate-800/50">
-                  <table className="w-full text-left text-[13px] min-w-[1100px]">
-                    <thead className="bg-slate-50 dark:bg-slate-950/50 font-black uppercase tracking-[0.2em] text-slate-400 text-[10px]">
-                      <tr>
-                        <th className="px-6 py-5">Shift Date</th>
-                        <th className="px-6 py-5">Agent</th>
-                        <th className="px-6 py-5">Logged Duration</th>
-                        <th className="px-6 py-5 text-center">Calculated OT</th>
-                        <th className="px-6 py-5">Reason</th>
-                        <th className="px-6 py-5 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y dark:divide-slate-800/50">
-                      {pendingOtApprovals.map(e => {
-                        const loginSec = timeToSeconds(e.currentLogin || '00:00:00');
-                        const shiftBase = e.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
-                        return (
-                          <tr key={e.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
-                            <td className="px-6 py-6">
-                              <span className="font-black dark:text-slate-200">{new Date(e.date).toLocaleDateString()}</span>
-                              <span className="block text-[10px] text-slate-400 font-black uppercase mt-0.5">{e.shiftType}</span>
-                            </td>
-                            <td className="px-6 py-6">
-                              <div className="font-black dark:text-slate-200 uppercase">{e.userName || e.userId}</div>
-                              <div className="text-[10px] text-slate-400 font-mono uppercase">{e.userId}</div>
-                            </td>
-                            <td className="px-6 py-6 font-mono font-black dark:text-slate-400">{e.currentLogin}</td>
-                            <td className="px-6 py-6 text-center text-amber-600 font-black font-mono">{secondsToTime(Math.max(0, loginSec - shiftBase))}</td>
-                            <td className="px-6 py-6 text-sm text-slate-600">{e.reason ? (e.reason.length > 80 ? e.reason.slice(0, 77) + '...' : e.reason) : '-'}</td>
-                            <td className="px-6 py-6 text-right">
-                              <div className="flex justify-end gap-2">
-                                <button
-                                  onClick={() => { setActionedEntry(e); setApprovalReason(''); setApprovalModalOpen(true); }}
-                                  className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-[9px] font-black uppercase"
-                                >
-                                  Approve
-                                </button>
-                                <button
-                                  onClick={() => { setActionedEntry(e); setRejectionReason(''); setRejectionModalOpen(true); }}
-                                  className="px-3 py-2 rounded-xl bg-rose-600 text-white text-[9px] font-black uppercase"
-                                >
-                                  Reject
-                                </button>
-                                <button
-                                  onClick={() => startEditAsAdmin(e)}
-                                  className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-[9px] font-black uppercase"
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  onClick={() => deleteEntry(e.id, e.userId)}
-                                  className="px-3 py-2 rounded-xl bg-rose-50 text-rose-600 text-[9px] font-black uppercase"
-                                >
-                                  Delete
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                      {pendingOtApprovals.length === 0 && (
-                        <tr><td colSpan={6} className="px-6 py-24 text-center text-slate-400 font-bold uppercase tracking-widest opacity-30">No pending OT approvals</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
 
           {activeTab === 'admin-dashboard' && (
             <div className="space-y-6 animate-in fade-in duration-500">
@@ -2661,7 +2592,7 @@ export default function App() {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+                <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
                   <button onClick={openTotalLoginUsers} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
                     <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Total Login Users</p>
                     <div className="text-2xl font-black text-indigo-600 mt-2">{overviewDerived.stats.totalUsers}</div>
@@ -3336,28 +3267,28 @@ export default function App() {
           {activeTab === 'ot-admin' && (
             <div className="animate-in fade-in duration-700 space-y-8">
               <div className="flex justify-between items-center">
-                <div><h2 className="text-xl font-black uppercase dark:text-white">OT Requests</h2><p className="text-[10px] text-slate-400 font-bold mt-1">Pending OT requests and approved/rejected history</p></div>
+                <div><h2 className="text-2xl font-black uppercase dark:text-white">OT Requests</h2><p className="text-xs text-slate-400 font-bold mt-1">Pending OT requests and approved/rejected history</p></div>
               </div>
 
               <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border dark:border-slate-800 shadow-sm space-y-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-sm font-black uppercase dark:text-white">OT Requests</h3>
-                    <p className="text-[10px] text-slate-400 font-bold mt-1 uppercase tracking-widest">Pending approvals with reasons</p>
+                    <h3 className="text-base font-black uppercase dark:text-white">OT Requests</h3>
+                    <p className="text-xs text-slate-400 font-bold mt-1 uppercase tracking-widest">Pending approvals with reasons</p>
                   </div>
                 </div>
 
                 <div className="overflow-hidden rounded-[2.5rem] border dark:border-slate-800">
-                  <table className="w-full table-fixed text-left text-[11px]">
-                    <thead className="bg-slate-50 dark:bg-slate-950 text-slate-400 uppercase font-black tracking-[0.08em] text-[9px] sticky top-0 z-10 border-b dark:border-slate-800">
+                  <table className="w-full table-fixed text-left text-[12px]">
+                    <thead className="bg-slate-50 dark:bg-slate-950 text-slate-400 uppercase font-black tracking-[0.08em] text-[10px] sticky top-0 z-10 border-b dark:border-slate-800">
                       <tr>
-                        <th className="px-3 py-3">User</th>
-                        <th className="px-3 py-3">Date</th>
-                        <th className="px-3 py-3">Shift</th>
-                        <th className="px-3 py-3">Login</th>
-                        <th className="px-3 py-3">OT</th>
-                        <th className="px-3 py-3">Reason</th>
-                        <th className="px-3 py-3 text-right">Actions</th>
+                        <th className="px-2 py-2">User</th>
+                        <th className="px-2 py-2">Date</th>
+                        <th className="px-2 py-2">Shift</th>
+                        <th className="px-2 py-2">Login</th>
+                        <th className="px-2 py-2">OT</th>
+                        <th className="px-2 py-2">Reason</th>
+                        <th className="px-2 py-2 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y dark:divide-slate-800/50">
@@ -3366,7 +3297,7 @@ export default function App() {
                         const sBase = log.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
                         return (
                           <tr key={log.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
-                            <td className="px-3 py-3 align-top">
+                            <td className="px-2 py-2 align-top">
                               <div className="flex items-center gap-4">
                                 <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-black text-xs shadow-sm">{log.userName?.charAt(0)}</div>
                                 <div className="min-w-0">
@@ -3375,15 +3306,15 @@ export default function App() {
                                 </div>
                               </div>
                             </td>
-                            <td className="px-3 py-3 align-top">
+                            <td className="px-2 py-2 align-top">
                               <div className="font-bold text-slate-600 dark:text-slate-400 text-sm">{new Date(log.date).toLocaleDateString('en-GB')}</div>
                               <div className="text-[9px] text-slate-400 font-bold uppercase">{new Date(log.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                             </td>
-                            <td className="px-3 py-3 align-top"><span className="text-[9px] text-indigo-500 font-black uppercase">{log.shiftType}</span></td>
-                            <td className="px-3 py-3 align-top font-mono font-black text-indigo-500">{log.currentLogin}</td>
-                            <td className="px-3 py-3 align-top font-mono font-black text-amber-600">{secondsToTime(Math.max(0, lSec - sBase))}</td>
-                            <td className="px-3 py-3 align-top text-[11px] text-slate-600 break-words whitespace-normal">{log.reason ? (log.reason.length > 80 ? log.reason.slice(0, 77) + '...' : log.reason) : '-'}</td>
-                            <td className="px-3 py-3 align-top text-right">
+                            <td className="px-2 py-2 align-top"><span className="text-[10px] text-indigo-500 font-black uppercase">{log.shiftType}</span></td>
+                            <td className="px-2 py-2 align-top font-mono font-black text-indigo-500">{log.currentLogin}</td>
+                            <td className="px-2 py-2 align-top font-mono font-black text-amber-600">{secondsToTime(Math.max(0, lSec - sBase))}</td>
+                            <td className="px-2 py-2 align-top text-[12px] text-slate-600 break-words whitespace-normal">{log.reason ? (log.reason.length > 80 ? log.reason.slice(0, 77) + '...' : log.reason) : '-'}</td>
+                            <td className="px-2 py-2 align-top text-right">
                               <div className="flex items-center justify-end gap-2">
                                 <button onClick={() => { setActionedEntry(log); setApprovalReason(''); setApprovalModalOpen(true); }} className="p-2 bg-emerald-500/10 text-emerald-500 rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm" title="Approve"><CheckCircleIcon size={16} /></button>
                                 <button onClick={() => { setActionedEntry(log); setRejectionReason(''); setRejectionModalOpen(true); }} className="p-2 bg-rose-500/10 text-rose-500 rounded-xl hover:bg-rose-500 hover:text-white transition-all shadow-sm" title="Reject"><XIcon size={16} /></button>
@@ -3405,8 +3336,8 @@ export default function App() {
               <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border dark:border-slate-800 shadow-sm space-y-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-sm font-black uppercase dark:text-white">OT Records</h3>
-                    <p className="text-[10px] text-slate-400 font-bold mt-1 uppercase tracking-widest">All approved and rejected overtime entries with user details</p>
+                    <h3 className="text-base font-black uppercase dark:text-white">OT Records</h3>
+                    <p className="text-xs text-slate-400 font-bold mt-1 uppercase tracking-widest">All approved and rejected overtime entries with user details</p>
                   </div>
                 </div>
 
@@ -3476,17 +3407,17 @@ export default function App() {
                 </div>
 
                 <div className="overflow-hidden rounded-[2.5rem] border dark:border-slate-800">
-                  <table className="w-full table-fixed text-left text-[11px]">
-                    <thead className="bg-slate-50 dark:bg-slate-950 text-slate-400 uppercase font-black tracking-[0.08em] text-[9px] sticky top-0 z-10 border-b dark:border-slate-800">
+                  <table className="w-full table-fixed text-left text-[12px]">
+                    <thead className="bg-slate-50 dark:bg-slate-950 text-slate-400 uppercase font-black tracking-[0.08em] text-[10px] sticky top-0 z-10 border-b dark:border-slate-800">
                       <tr>
-                        <th className="px-3 py-3">User</th>
-                        <th className="px-3 py-3">Date</th>
-                        <th className="px-3 py-3">Shift</th>
-                        <th className="px-3 py-3">Login</th>
-                        <th className="px-3 py-3">OT</th>
-                        <th className="px-3 py-3">Reason</th>
-                        <th className="px-3 py-3 text-center">Status</th>
-                        <th className="px-3 py-3 text-right">Actions</th>
+                        <th className="px-2 py-2">User</th>
+                        <th className="px-2 py-2">Date</th>
+                        <th className="px-2 py-2">Shift</th>
+                        <th className="px-2 py-2">Login</th>
+                        <th className="px-2 py-2">OT</th>
+                        <th className="px-2 py-2">Reason</th>
+                        <th className="px-2 py-2 text-center">Status</th>
+                        <th className="px-2 py-2 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y dark:divide-slate-800/50">
@@ -3496,7 +3427,7 @@ export default function App() {
 
                         return (
                           <tr key={log.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
-                            <td className="px-3 py-3 align-top">
+                            <td className="px-2 py-2 align-top">
                               <div className="flex items-center gap-4">
                                 <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-black text-xs shadow-sm">{log.userName?.charAt(0)}</div>
                                 <div className="min-w-0">
@@ -3505,18 +3436,18 @@ export default function App() {
                                 </div>
                               </div>
                             </td>
-                            <td className="px-3 py-3 align-top">
+                            <td className="px-2 py-2 align-top">
                               <div className="font-bold text-slate-600 dark:text-slate-400 text-sm">{new Date(log.date).toLocaleDateString('en-GB')}</div>
                               <div className="text-[9px] text-slate-400 font-bold uppercase">{new Date(log.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                             </td>
-                            <td className="px-3 py-3 align-top"><span className="text-[9px] text-indigo-500 font-black uppercase">{log.shiftType}</span></td>
-                            <td className="px-3 py-3 align-top font-mono font-black text-indigo-500">{log.currentLogin}</td>
-                            <td className="px-3 py-3 align-top font-mono font-black text-amber-600">{secondsToTime(lSec - sBase)}</td>
-                            <td className="px-3 py-3 align-top text-[11px] text-slate-600 break-words whitespace-normal">{log.reason ? (log.reason.length > 80 ? log.reason.slice(0, 77) + '...' : log.reason) : '-'}</td>
-                            <td className="px-3 py-3 align-top text-center">
+                            <td className="px-2 py-2 align-top"><span className="text-[10px] text-indigo-500 font-black uppercase">{log.shiftType}</span></td>
+                            <td className="px-2 py-2 align-top font-mono font-black text-indigo-500">{log.currentLogin}</td>
+                            <td className="px-2 py-2 align-top font-mono font-black text-amber-600">{secondsToTime(lSec - sBase)}</td>
+                            <td className="px-2 py-2 align-top text-[12px] text-slate-600 break-words whitespace-normal">{log.reason ? (log.reason.length > 80 ? log.reason.slice(0, 77) + '...' : log.reason) : '-'}</td>
+                            <td className="px-2 py-2 align-top text-center">
                               <StatusBadge status={log.status} />
                             </td>
-                            <td className="px-3 py-3 align-top text-right">
+                            <td className="px-2 py-2 align-top text-right">
                               <div className="flex items-center justify-end gap-2">
                                 {log.status === 'Pending' && (
                                   <div className="flex gap-1.5">
