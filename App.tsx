@@ -108,6 +108,14 @@ type MasterFiltersDraft = {
   sortBy: 'productivity' | 'break' | 'ot' | 'talk' | 'inbound' | 'outbound';
 };
 
+type OtRecordFilters = {
+  searchQuery: string;
+  dateStart: string;
+  dateEnd: string;
+  shiftFilter: 'All' | ShiftType;
+  statusFilter: 'All' | 'Approved' | 'Rejected';
+};
+
 const createDefaultMasterFilters = (): MasterFiltersDraft => ({
   searchQuery: '',
   agentFilter: '',
@@ -119,6 +127,14 @@ const createDefaultMasterFilters = (): MasterFiltersDraft => ({
   overtimeFilter: 'All',
   underShiftFilter: 'All',
   sortBy: 'productivity'
+});
+
+const createDefaultOtRecordFilters = (): OtRecordFilters => ({
+  searchQuery: '',
+  dateStart: '',
+  dateEnd: '',
+  shiftFilter: 'All',
+  statusFilter: 'All'
 });
 
 export default function App() {
@@ -167,6 +183,12 @@ export default function App() {
   const [otApprovalDateEnd, setOtApprovalDateEnd] = useState('');
   const [otApprovalShiftFilter, setOtApprovalShiftFilter] = useState<'All' | ShiftType>('All');
   const [otApprovalStatusFilter, setOtApprovalStatusFilter] = useState<'All' | 'Pending' | 'Approved' | 'Rejected'>('All');
+  const [otRecordFiltersDraft, setOtRecordFiltersDraft] = useState<OtRecordFilters>(() => createDefaultOtRecordFilters());
+  const [otRecordSearchQuery, setOtRecordSearchQuery] = useState('');
+  const [otRecordDateStart, setOtRecordDateStart] = useState('');
+  const [otRecordDateEnd, setOtRecordDateEnd] = useState('');
+  const [otRecordShiftFilter, setOtRecordShiftFilter] = useState<'All' | ShiftType>('All');
+  const [otRecordStatusFilter, setOtRecordStatusFilter] = useState<'All' | 'Approved' | 'Rejected'>('All');
   const [rejectionModalOpen, setRejectionModalOpen] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
   const [actionedEntry, setActionedEntry] = useState<TimeData | null>(null);
@@ -786,45 +808,61 @@ export default function App() {
     );
   }, [otEntries, otAdminSearchQuery]);
 
-  const otApprovalEntries = useMemo(() => {
+  const pendingOtApprovals = useMemo(() => {
     const eligibilitySec = 4.5 * 3600;
     return masterData.filter(d => {
       const loginSec = timeToSeconds(d.currentLogin || '00:00:00');
       const shiftBase = d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
       const extra = loginSec - shiftBase;
       if (!(loginSec >= eligibilitySec && extra > 3600)) return false;
-      return d.status === 'Pending' || d.status === 'Approved' || d.status === 'Rejected';
+      return d.status === 'Pending';
     });
   }, [masterData]);
 
-  const filteredOtApprovals = useMemo(() => {
-    let result = otApprovalEntries;
-    if (otApprovalSearchQuery) {
-      const q = otApprovalSearchQuery.toLowerCase();
+  const otRecordEntries = useMemo(() => {
+    const eligibilitySec = 4.5 * 3600;
+    return masterData.filter(d => {
+      const loginSec = timeToSeconds(d.currentLogin || '00:00:00');
+      const shiftBase = d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+      const extra = loginSec - shiftBase;
+      if (!(loginSec >= eligibilitySec && extra > 3600)) return false;
+      return d.status === 'Approved' || d.status === 'Rejected';
+    });
+  }, [masterData]);
+
+  const filteredOtRecords = useMemo(() => {
+    let result = otRecordEntries;
+    if (otRecordSearchQuery) {
+      const q = otRecordSearchQuery.toLowerCase();
       result = result.filter(d =>
         (d.userName || '').toLowerCase().includes(q) ||
         (d.userId || '').toLowerCase().includes(q) ||
         new Date(d.date).toLocaleDateString('en-GB').includes(q)
       );
     }
-    if (otApprovalDateStart) {
-      const start = new Date(otApprovalDateStart);
+    if (otRecordDateStart) {
+      const start = new Date(otRecordDateStart);
       start.setHours(0, 0, 0, 0);
       result = result.filter(d => new Date(d.date) >= start);
     }
-    if (otApprovalDateEnd) {
-      const end = new Date(otApprovalDateEnd);
+    if (otRecordDateEnd) {
+      const end = new Date(otRecordDateEnd);
       end.setHours(23, 59, 59, 999);
       result = result.filter(d => new Date(d.date) <= end);
     }
-    if (otApprovalShiftFilter !== 'All') {
-      result = result.filter(d => d.shiftType === otApprovalShiftFilter);
+    if (otRecordShiftFilter !== 'All') {
+      result = result.filter(d => d.shiftType === otRecordShiftFilter);
     }
-    if (otApprovalStatusFilter !== 'All') {
-      result = result.filter(d => d.status === otApprovalStatusFilter);
+    if (otRecordStatusFilter !== 'All') {
+      result = result.filter(d => d.status === otRecordStatusFilter);
     }
     return result;
-  }, [otApprovalEntries, otApprovalSearchQuery, otApprovalDateStart, otApprovalDateEnd, otApprovalShiftFilter, otApprovalStatusFilter]);
+  }, [otRecordEntries, otRecordSearchQuery, otRecordDateStart, otRecordDateEnd, otRecordShiftFilter, otRecordStatusFilter]);
+
+  const otRecordTotals = useMemo(() => ({
+    approved: filteredOtRecords.filter(d => d.status === 'Approved').length,
+    rejected: filteredOtRecords.filter(d => d.status === 'Rejected').length
+  }), [filteredOtRecords]);
 
   const getOverviewBounds = () => {
     const end = new Date();
@@ -1265,6 +1303,11 @@ export default function App() {
 
   const masterTotalPages = useMemo(() => Math.ceil(filteredMasterData.length / masterPageSize), [filteredMasterData.length, masterPageSize]);
 
+  const handleMasterSearchApply = () => {
+    applyMasterFilters();
+    fetchMasterData(true);
+  };
+
   const applyMasterFilters = (nextFilters?: MasterFiltersDraft) => {
     const source = nextFilters ?? masterFiltersDraft;
     setMasterSearchQuery(source.searchQuery);
@@ -1281,6 +1324,15 @@ export default function App() {
     setMasterFiltersApplied(true);
   };
 
+  const applyOtRecordFilters = (nextFilters?: OtRecordFilters) => {
+    const source = nextFilters ?? otRecordFiltersDraft;
+    setOtRecordSearchQuery(source.searchQuery);
+    setOtRecordDateStart(source.dateStart);
+    setOtRecordDateEnd(source.dateEnd);
+    setOtRecordShiftFilter(source.shiftFilter);
+    setOtRecordStatusFilter(source.statusFilter);
+  };
+
   const resetMasterFilters = () => {
     const next = buildTodayMasterFilters();
     setMasterFiltersDraft(next);
@@ -1295,6 +1347,16 @@ export default function App() {
     return {
       ...createDefaultMasterFilters(),
       searchQuery: '',
+      dateStart: today,
+      dateEnd: today,
+      ...overrides
+    };
+  };
+
+  const buildTodayOtRecordFilters = (overrides: Partial<OtRecordFilters> = {}) => {
+    const today = formatDateInput(new Date());
+    return {
+      ...createDefaultOtRecordFilters(),
       dateStart: today,
       dateEnd: today,
       ...overrides
@@ -1386,15 +1448,6 @@ export default function App() {
     setActiveTab('all-logs');
   };
 
-  const applySmartSearch = (query: string) => {
-    const trimmed = query.trim();
-    setMasterSearchQuery(trimmed);
-    setMasterFiltersApplied(false);
-    setMasterFocusMode('all');
-    setMasterCurrentPage(1);
-    fetchMasterData(true);
-  };
-
   const applyOverviewRangeToOtApprovals = () => {
     setOtApprovalDateStart(formatDateInput(overviewRangeBounds.start));
     setOtApprovalDateEnd(formatDateInput(overviewRangeBounds.end));
@@ -1461,6 +1514,9 @@ export default function App() {
       const next = buildTodayMasterFilters();
       setMasterFiltersDraft(next);
       applyMasterFilters(next);
+      const recordFilters = buildTodayOtRecordFilters();
+      setOtRecordFiltersDraft(recordFilters);
+      applyOtRecordFilters(recordFilters);
     }
   }, [user]);
 
@@ -2225,68 +2281,15 @@ export default function App() {
                   <h2 className="text-xl font-black uppercase tracking-wider dark:text-white">OT Approvals</h2>
                   <p className="text-slate-400 text-[10px] font-bold mt-1 uppercase tracking-widest">Pending OT requests requiring approval</p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    onClick={() => exportDailyPerformanceReport(filteredOtApprovals.filter(e => e.status === 'Approved'))}
-                    className="bg-emerald-600 text-white px-4 py-3 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-700 transition-colors"
-                  >
-                    Download Approved
-                  </button>
-                  <button
-                    onClick={() => exportDailyPerformanceReport(filteredOtApprovals.filter(e => e.status === 'Rejected'))}
-                    className="bg-rose-600 text-white px-4 py-3 rounded-xl text-[10px] font-black uppercase hover:bg-rose-700 transition-colors"
-                  >
-                    Download Rejected
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('all-logs')}
-                    className="bg-slate-200 dark:bg-slate-800 px-4 py-3 rounded-xl text-[10px] font-black uppercase"
-                  >
-                    Open Master Stream
-                  </button>
-                </div>
+                <button
+                  onClick={() => setActiveTab('all-logs')}
+                  className="bg-slate-200 dark:bg-slate-800 px-4 py-3 rounded-xl text-[10px] font-black uppercase"
+                >
+                  Open Master Stream
+                </button>
               </div>
 
               <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border dark:border-slate-800 shadow-sm space-y-6">
-                <div className="relative group max-w-lg">
-                  <SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-amber-500 transition-colors" size={18} />
-                  <input
-                    type="text"
-                    placeholder="Search OT approvals by name, ID, or date (DD/MM/YYYY)..."
-                    value={otApprovalSearchQuery}
-                    onChange={(e) => setOtApprovalSearchQuery(e.target.value)}
-                    className="w-full py-4 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none pl-14 pr-8 text-xs font-bold border border-transparent focus:border-amber-500/20 dark:text-white transition-all shadow-inner"
-                  />
-                </div>
-
-                <div className="flex flex-col md:flex-row gap-4">
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">From Date</label>
-                    <input type="date" value={otApprovalDateStart} onChange={(e) => setOtApprovalDateStart(e.target.value)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner" />
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">To Date</label>
-                    <input type="date" value={otApprovalDateEnd} onChange={(e) => setOtApprovalDateEnd(e.target.value)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner" />
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Shift</label>
-                    <select value={otApprovalShiftFilter} onChange={(e) => setOtApprovalShiftFilter(e.target.value as any)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner appearance-none cursor-pointer">
-                      <option value="All">All Shifts</option>
-                      <option value="Full Day">Full Day</option>
-                      <option value="Half Day">Half Day</option>
-                    </select>
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Status</label>
-                    <select value={otApprovalStatusFilter} onChange={(e) => setOtApprovalStatusFilter(e.target.value as any)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner appearance-none cursor-pointer">
-                      <option value="All">All</option>
-                      <option value="Pending">Pending</option>
-                      <option value="Approved">Approved</option>
-                      <option value="Rejected">Rejected</option>
-                    </select>
-                  </div>
-                </div>
-
                 <div className="overflow-x-auto rounded-[2rem] border dark:border-slate-800/50">
                   <table className="w-full text-left text-[13px] min-w-[1100px]">
                     <thead className="bg-slate-50 dark:bg-slate-950/50 font-black uppercase tracking-[0.2em] text-slate-400 text-[10px]">
@@ -2300,7 +2303,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody className="divide-y dark:divide-slate-800/50">
-                      {filteredOtApprovals.map(e => {
+                      {pendingOtApprovals.map(e => {
                         const loginSec = timeToSeconds(e.currentLogin || '00:00:00');
                         const shiftBase = e.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
                         return (
@@ -2347,8 +2350,8 @@ export default function App() {
                           </tr>
                         );
                       })}
-                      {filteredOtApprovals.length === 0 && (
-                        <tr><td colSpan={6} className="px-6 py-24 text-center text-slate-400 font-bold uppercase tracking-widest opacity-30">No OT approvals found</td></tr>
+                      {pendingOtApprovals.length === 0 && (
+                        <tr><td colSpan={6} className="px-6 py-24 text-center text-slate-400 font-bold uppercase tracking-widest opacity-30">No pending OT approvals</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -2721,7 +2724,7 @@ export default function App() {
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault();
-                          applySmartSearch(masterFiltersDraft.searchQuery);
+                          handleMasterSearchApply();
                         }
                       }}
                       list="master-search-list"
@@ -2734,19 +2737,13 @@ export default function App() {
                     </datalist>
                   </div>
                   <button
-                    onClick={() => applySmartSearch(masterFiltersDraft.searchQuery)}
-                    className="px-5 py-3 rounded-2xl bg-slate-900 text-white text-[10px] font-black uppercase hover:bg-slate-800 transition-colors"
-                  >
-                    Search
-                  </button>
-                  <button
                     onClick={resetMasterFilters}
                     className="px-5 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[10px] font-black uppercase hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                   >
                     Clear Filters
                   </button>
                   <button
-                    onClick={() => { applyMasterFilters(); fetchMasterData(true); }}
+                    onClick={handleMasterSearchApply}
                     className="px-5 py-3 rounded-2xl bg-indigo-600 text-white text-[10px] font-black uppercase hover:bg-indigo-700 transition-colors"
                   >
                     Apply
@@ -3098,7 +3095,69 @@ export default function App() {
 
               <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border dark:border-slate-800 shadow-sm space-y-6">
                 <div className="relative group max-w-lg">
-                  <SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={18} /><input type="text" placeholder="Search OT records by name, employee ID, or date (DD/MM/YYYY)..." value={otAdminSearchQuery} onChange={(e) => setOtAdminSearchQuery(e.target.value)} className="w-full py-5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none pl-14 pr-8 text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner" /></div>
+                  <SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={18} />
+                  <input
+                    type="text"
+                    placeholder="Search OT records by name, employee ID, or date (DD/MM/YYYY)..."
+                    value={otRecordFiltersDraft.searchQuery}
+                    onChange={(e) => setOtRecordFiltersDraft(prev => ({ ...prev, searchQuery: e.target.value }))}
+                    className="w-full py-5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none pl-14 pr-8 text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner"
+                  />
+                </div>
+
+                <div className="flex flex-col md:flex-row gap-4">
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">From Date</label>
+                    <input type="date" value={otRecordFiltersDraft.dateStart} onChange={(e) => setOtRecordFiltersDraft(prev => ({ ...prev, dateStart: e.target.value }))} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner" />
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">To Date</label>
+                    <input type="date" value={otRecordFiltersDraft.dateEnd} onChange={(e) => setOtRecordFiltersDraft(prev => ({ ...prev, dateEnd: e.target.value }))} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner" />
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Shift</label>
+                    <select value={otRecordFiltersDraft.shiftFilter} onChange={(e) => setOtRecordFiltersDraft(prev => ({ ...prev, shiftFilter: e.target.value as any }))} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner appearance-none cursor-pointer">
+                      <option value="All">All Shifts</option>
+                      <option value="Full Day">Full Day</option>
+                      <option value="Half Day">Half Day</option>
+                    </select>
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Status</label>
+                    <select value={otRecordFiltersDraft.statusFilter} onChange={(e) => setOtRecordFiltersDraft(prev => ({ ...prev, statusFilter: e.target.value as any }))} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner appearance-none cursor-pointer">
+                      <option value="All">All</option>
+                      <option value="Approved">Approved</option>
+                      <option value="Rejected">Rejected</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => { applyOtRecordFilters(); fetchMasterData(true); }}
+                      className="px-5 py-3 rounded-2xl bg-indigo-600 text-white text-[10px] font-black uppercase hover:bg-indigo-700 transition-colors"
+                    >
+                      Search
+                    </button>
+                    <button
+                      onClick={() => exportDailyPerformanceReport(filteredOtRecords.filter(e => e.status === 'Approved'))}
+                      className="px-5 py-3 rounded-2xl bg-emerald-600 text-white text-[10px] font-black uppercase hover:bg-emerald-700 transition-colors"
+                    >
+                      Download Approved
+                    </button>
+                    <button
+                      onClick={() => exportDailyPerformanceReport(filteredOtRecords.filter(e => e.status === 'Rejected'))}
+                      className="px-5 py-3 rounded-2xl bg-rose-600 text-white text-[10px] font-black uppercase hover:bg-rose-700 transition-colors"
+                    >
+                      Download Rejected
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest">
+                    <span className="px-3 py-2 rounded-2xl bg-emerald-50 text-emerald-600">Approved: {otRecordTotals.approved}</span>
+                    <span className="px-3 py-2 rounded-2xl bg-rose-50 text-rose-600">Rejected: {otRecordTotals.rejected}</span>
+                  </div>
+                </div>
 
                 <div className="overflow-x-auto rounded-[2.5rem] border dark:border-slate-800">
                   <table className="w-full text-left text-[13px] min-w-[1300px]">
@@ -3115,7 +3174,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody className="divide-y dark:divide-slate-800/50">
-                      {filteredOtEntries.map(log => {
+                      {filteredOtRecords.map(log => {
                         const lSec = timeToSeconds(log.currentLogin);
                         const sBase = log.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
 
@@ -3152,7 +3211,7 @@ export default function App() {
                           </tr>
                         );
                       })}
-                      {filteredOtEntries.length === 0 && (
+                      {filteredOtRecords.length === 0 && (
                         <tr><td colSpan={8} className="px-6 py-24 text-center text-slate-400 font-bold uppercase tracking-[0.2em] opacity-30">No OT records found matching search criteria</td></tr>
                       )}
                     </tbody>
