@@ -675,6 +675,145 @@ export default function App() {
     );
   }, [otEntries, otAdminSearchQuery]);
 
+  const adminDashboardStats = useMemo(() => {
+    if (user?.role !== 'admin') {
+      return {
+        entriesCount: 0,
+        totalUsers: 0,
+        totalLoginSec: 0,
+        totalTalkSec: 0,
+        totalCustomerTalkSec: 0,
+        totalHoldSec: 0,
+        totalBreakSec: 0,
+        totalInbound: 0,
+        totalOutbound: 0,
+        totalOtSec: 0,
+        breakExceededCount: 0,
+        statusCounts: { Approved: 0, Pending: 0, Rejected: 0, 'N/A': 0 },
+        shiftCounts: { 'Full Day': 0, 'Half Day': 0 },
+        users: [] as Array<{
+          userId: string;
+          userName: string;
+          entriesCount: number;
+          totalTalkSec: number;
+          totalCustomerTalkSec: number;
+          totalInbound: number;
+          totalOutbound: number;
+          breakExceededCount: number;
+          score: number;
+        }>,
+        topPerformer: null as null | { userId: string; userName: string; score: number },
+        bottomPerformer: null as null | { userId: string; userName: string; score: number }
+      };
+    }
+
+    const data = masterDataServer || [];
+    const statusCounts: Record<EntryStatus, number> = { Approved: 0, Pending: 0, Rejected: 0, 'N/A': 0 };
+    const shiftCounts: Record<ShiftType, number> = { 'Full Day': 0, 'Half Day': 0 };
+    const usersMap = new Map<string, {
+      userId: string;
+      userName: string;
+      entriesCount: number;
+      totalTalkSec: number;
+      totalCustomerTalkSec: number;
+      totalInbound: number;
+      totalOutbound: number;
+      breakExceededCount: number;
+    }>();
+
+    let totalLoginSec = 0;
+    let totalTalkSec = 0;
+    let totalCustomerTalkSec = 0;
+    let totalHoldSec = 0;
+    let totalBreakSec = 0;
+    let totalInbound = 0;
+    let totalOutbound = 0;
+    let totalOtSec = 0;
+    let breakExceededCount = 0;
+
+    for (const d of data) {
+      const loginSec = timeToSeconds(d.currentLogin || '00:00:00');
+      const talkSec = timeToSeconds(d.talk || '00:00:00');
+      const customerTalkSec = timeToSeconds(d.customerTalk || '00:00:00');
+      const holdSec = timeToSeconds(d.hold || '00:00:00');
+      const breakSec = timeToSeconds(d.pause || '00:00:00') + timeToSeconds(d.dispo || '00:00:00') + timeToSeconds(d.dead || '00:00:00');
+      const shiftBase = d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+      const breakLimit = d.shiftType === 'Full Day' ? 7200 : 2700;
+      const otSec = Math.max(0, loginSec - shiftBase);
+      const isBreakExceeded = breakSec > breakLimit;
+
+      totalLoginSec += loginSec;
+      totalTalkSec += talkSec;
+      totalCustomerTalkSec += customerTalkSec;
+      totalHoldSec += holdSec;
+      totalBreakSec += breakSec;
+      totalInbound += d.inbound || 0;
+      totalOutbound += d.outbound || 0;
+      totalOtSec += otSec;
+      if (isBreakExceeded) breakExceededCount += 1;
+
+      statusCounts[d.status] = (statusCounts[d.status] || 0) + 1;
+      shiftCounts[d.shiftType] = (shiftCounts[d.shiftType] || 0) + 1;
+
+      const existing = usersMap.get(d.userId) || {
+        userId: d.userId,
+        userName: d.userName || d.userId,
+        entriesCount: 0,
+        totalTalkSec: 0,
+        totalCustomerTalkSec: 0,
+        totalInbound: 0,
+        totalOutbound: 0,
+        breakExceededCount: 0
+      };
+
+      existing.entriesCount += 1;
+      existing.totalTalkSec += talkSec;
+      existing.totalCustomerTalkSec += customerTalkSec;
+      existing.totalInbound += d.inbound || 0;
+      existing.totalOutbound += d.outbound || 0;
+      if (isBreakExceeded) existing.breakExceededCount += 1;
+      usersMap.set(d.userId, existing);
+    }
+
+    const users = Array.from(usersMap.values());
+    const maxTalk = Math.max(0, ...users.map(u => u.totalTalkSec));
+    const maxCustomerTalk = Math.max(0, ...users.map(u => u.totalCustomerTalkSec));
+    const maxVolume = Math.max(0, ...users.map(u => u.totalInbound + u.totalOutbound));
+    const maxBreakExceeded = Math.max(0, ...users.map(u => u.breakExceededCount));
+
+    const normalize = (value: number, max: number) => max > 0 ? (value / max) * 100 : 0;
+    const scoredUsers = users.map(u => {
+      const talkScore = normalize(u.totalTalkSec, maxTalk);
+      const customerScore = normalize(u.totalCustomerTalkSec, maxCustomerTalk);
+      const volumeScore = normalize(u.totalInbound + u.totalOutbound, maxVolume);
+      const breakPenalty = normalize(u.breakExceededCount, maxBreakExceeded);
+      const score = Math.max(0, Math.min(100, (talkScore * 0.4) + (volumeScore * 0.3) + (customerScore * 0.2) - (breakPenalty * 0.1)));
+      return { ...u, score };
+    }).sort((a, b) => b.score - a.score);
+
+    const topPerformer = scoredUsers.length ? { userId: scoredUsers[0].userId, userName: scoredUsers[0].userName, score: scoredUsers[0].score } : null;
+    const bottomPerformer = scoredUsers.length ? { userId: scoredUsers[scoredUsers.length - 1].userId, userName: scoredUsers[scoredUsers.length - 1].userName, score: scoredUsers[scoredUsers.length - 1].score } : null;
+
+    return {
+      entriesCount: data.length,
+      totalUsers: users.length,
+      totalLoginSec,
+      totalTalkSec,
+      totalCustomerTalkSec,
+      totalHoldSec,
+      totalBreakSec,
+      totalInbound,
+      totalOutbound,
+      totalOtSec,
+      breakExceededCount,
+      statusCounts,
+      shiftCounts,
+      users: scoredUsers,
+      topPerformer,
+      bottomPerformer
+    };
+  }, [masterDataServer, user]);
+
   useEffect(() => {
     if (user?.role === 'admin') { fetchMasterData(); fetchMigrations(); }
   }, [user, allUsers]);
@@ -1361,6 +1500,134 @@ export default function App() {
                   <button onClick={() => setShowMigrationModal(true)} disabled={isMigrating} className="bg-emerald-600 px-4 py-3 rounded-xl text-[10px] font-black uppercase text-white">{isMigrating ? 'Migrating...' : 'Run migration now'}</button>
                   <button onClick={() => setShowPasswords(p => !p)} className="bg-slate-200 dark:bg-slate-800 px-4 py-3 rounded-xl text-[10px] font-black uppercase">{showPasswords ? 'Hide Passwords' : 'Show Passwords'}</button>
                 </div>
+              </div>
+              <div className="dashboard bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-sm border dark:border-slate-800">
+                <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-6">
+                  <div>
+                    <h3 className="text-lg font-black uppercase dark:text-white">Admin Performance Dashboard</h3>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">KPI summary, compliance, and top performers</p>
+                  </div>
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Entries: {adminDashboardStats.entriesCount} | Users: {adminDashboardStats.totalUsers}</div>
+                </div>
+
+                {adminDashboardStats.entriesCount === 0 ? (
+                  <div className="px-6 py-16 text-center text-slate-400 font-bold uppercase tracking-widest opacity-40">No data available for dashboard</div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                      <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Total Logged</p>
+                        <div className="text-2xl font-black font-mono text-indigo-600 mt-2">{secondsToTime(adminDashboardStats.totalLoginSec)}</div>
+                      </div>
+                      <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Avg Talk Time</p>
+                        <div className="text-2xl font-black font-mono text-emerald-600 mt-2">{secondsToTime(Math.round(adminDashboardStats.totalTalkSec / Math.max(1, adminDashboardStats.entriesCount)))}</div>
+                      </div>
+                      <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Break Exceeded</p>
+                        <div className="text-2xl font-black text-rose-600 mt-2">{adminDashboardStats.breakExceededCount}</div>
+                      </div>
+                      <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Total OT</p>
+                        <div className="text-2xl font-black font-mono text-amber-600 mt-2">{secondsToTime(adminDashboardStats.totalOtSec)}</div>
+                      </div>
+                      <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Approval Rate</p>
+                        <div className="text-2xl font-black text-emerald-600 mt-2">
+                          {Math.round((adminDashboardStats.statusCounts.Approved / Math.max(1, adminDashboardStats.entriesCount)) * 100)}%
+                        </div>
+                      </div>
+                      <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Active Users</p>
+                        <div className="text-2xl font-black text-indigo-600 mt-2">{adminDashboardStats.totalUsers}</div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
+                      <div className="lg:col-span-2 p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                        <div className="flex items-center justify-between mb-4">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Status Mix</p>
+                          <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Approved / Pending / Rejected</p>
+                        </div>
+                        <div className="h-3 w-full rounded-full overflow-hidden bg-slate-200 dark:bg-slate-800">
+                          <div className="h-full bg-emerald-500" style={{ width: `${(adminDashboardStats.statusCounts.Approved / Math.max(1, adminDashboardStats.entriesCount)) * 100}%` }} />
+                        </div>
+                        <div className="h-3 w-full rounded-full overflow-hidden bg-slate-200 dark:bg-slate-800 mt-2">
+                          <div className="h-full bg-amber-500" style={{ width: `${(adminDashboardStats.statusCounts.Pending / Math.max(1, adminDashboardStats.entriesCount)) * 100}%` }} />
+                        </div>
+                        <div className="h-3 w-full rounded-full overflow-hidden bg-slate-200 dark:bg-slate-800 mt-2">
+                          <div className="h-full bg-rose-500" style={{ width: `${(adminDashboardStats.statusCounts.Rejected / Math.max(1, adminDashboardStats.entriesCount)) * 100}%` }} />
+                        </div>
+                      </div>
+
+                      <div className="p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-4">Shift Mix</p>
+                        <div className="flex items-center justify-between text-xs font-bold">
+                          <span className="uppercase text-slate-500">Full Day</span>
+                          <span className="font-black text-indigo-600">{adminDashboardStats.shiftCounts['Full Day']}</span>
+                        </div>
+                        <div className="h-2 w-full rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden mt-2">
+                          <div className="h-full bg-indigo-500" style={{ width: `${(adminDashboardStats.shiftCounts['Full Day'] / Math.max(1, adminDashboardStats.entriesCount)) * 100}%` }} />
+                        </div>
+                        <div className="flex items-center justify-between text-xs font-bold mt-4">
+                          <span className="uppercase text-slate-500">Half Day</span>
+                          <span className="font-black text-amber-600">{adminDashboardStats.shiftCounts['Half Day']}</span>
+                        </div>
+                        <div className="h-2 w-full rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden mt-2">
+                          <div className="h-full bg-amber-500" style={{ width: `${(adminDashboardStats.shiftCounts['Half Day'] / Math.max(1, adminDashboardStats.entriesCount)) * 100}%` }} />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+                      <div className="p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-4">Top Performer</p>
+                        {adminDashboardStats.topPerformer ? (
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="text-sm font-black uppercase dark:text-white">{adminDashboardStats.topPerformer.userName}</div>
+                              <div className="text-[10px] font-bold uppercase text-emerald-500">Score {Math.round(adminDashboardStats.topPerformer.score)}</div>
+                            </div>
+                            <button
+                              onClick={() => {
+                                const target = allUsers.find(u => u.empId.toLowerCase() === adminDashboardStats.topPerformer?.userId.toLowerCase());
+                                if (target) { setAdminViewingUserId(target.id); setActiveTab('details'); }
+                              }}
+                              className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-[10px] font-black uppercase"
+                            >
+                              View Details
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="text-xs text-slate-400 uppercase">No performer data</div>
+                        )}
+                      </div>
+
+                      <div className="p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-4">Needs Attention</p>
+                        {adminDashboardStats.bottomPerformer ? (
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="text-sm font-black uppercase dark:text-white">{adminDashboardStats.bottomPerformer.userName}</div>
+                              <div className="text-[10px] font-bold uppercase text-rose-500">Score {Math.round(adminDashboardStats.bottomPerformer.score)}</div>
+                            </div>
+                            <button
+                              onClick={() => {
+                                const target = allUsers.find(u => u.empId.toLowerCase() === adminDashboardStats.bottomPerformer?.userId.toLowerCase());
+                                if (target) { setAdminViewingUserId(target.id); setActiveTab('details'); }
+                              }}
+                              className="px-4 py-2 rounded-xl bg-rose-600 text-white text-[10px] font-black uppercase"
+                            >
+                              View Details
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="text-xs text-slate-400 uppercase">No performer data</div>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
               <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-sm border dark:border-slate-800">
                 <div className="relative mb-8 group"><SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-amber-500 transition-colors" size={16} /><input type="text" placeholder="Search team by ID or name..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full py-5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none pl-14 pr-8 text-xs font-bold border focus:border-amber-500/20 dark:text-white shadow-inner" /></div>
