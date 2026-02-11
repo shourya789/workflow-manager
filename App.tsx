@@ -45,6 +45,7 @@ import { parseRawTimeData } from './services/geminiService';
 import { exportToExcel, exportConsolidatedExcel, exportDailyPerformanceReport } from './services/excelService';
 
 const MILESTONES = [1800, 2100, 2500];
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const INITIAL_FORM_STATE = {
   pause: '00:00:00',
@@ -155,6 +156,8 @@ export default function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [shiftType, setShiftType] = useState<ShiftType>('Full Day');
   const [emergencyOt, setEmergencyOt] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState(() => new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear());
   const [showOTModal, setShowOTModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [allUsers, setAllUsers] = useState<User[]>([]);
@@ -388,6 +391,13 @@ export default function App() {
     if (!user) return null;
     return adminViewingUserId ? allUsers.find(u => u.id === adminViewingUserId) || null : user;
   }, [adminViewingUserId, allUsers, user]);
+
+  const yearOptions = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    const startYear = 2024;
+    const endYear = Math.max(currentYear + 1, startYear);
+    return Array.from({ length: endYear - startYear + 1 }, (_, idx) => startYear + idx);
+  }, []);
 
   useEffect(() => {
     const session = localStorage.getItem('current_session');
@@ -674,7 +684,7 @@ export default function App() {
   const saveToHistory = () => {
     if (emergencyOt) {
       if (loginSec < 3600) {
-        pushToast('Emergency OT requires at least 1 hour of login time.', 'warning');
+        pushToast('OT requires at least 1 hour of login time.', 'warning');
         return;
       }
       if (!showOTModal) {
@@ -778,29 +788,70 @@ export default function App() {
     startEdit(entry);
   };
 
-  const monthlyStats = useMemo(() => {
-    const now = new Date();
-    const relevant = entries.filter(e => {
+  const selectedMonthEntries = useMemo(() => {
+    return entries.filter(e => {
       const d = new Date(e.date);
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear() && !e.emergencyOt;
+      return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
     });
-    return {
-      inbound: relevant.reduce((acc, curr) => acc + (curr.inbound || 0), 0),
-      outbound: relevant.reduce((acc, curr) => acc + (curr.outbound || 0), 0)
-    };
-  }, [entries]);
+  }, [entries, selectedMonth, selectedYear]);
 
-  const monthlyEmergencyStats = useMemo(() => {
-    const now = new Date();
-    const relevant = entries.filter(e => {
-      const d = new Date(e.date);
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear() && e.emergencyOt;
-    });
+  const monthlyStats = useMemo(() => {
+    const relevant = selectedMonthEntries.filter(e => !e.emergencyOt);
     return {
       inbound: relevant.reduce((acc, curr) => acc + (curr.inbound || 0), 0),
       outbound: relevant.reduce((acc, curr) => acc + (curr.outbound || 0), 0)
     };
-  }, [entries]);
+  }, [selectedMonthEntries]);
+
+  const monthlyOtStats = useMemo(() => {
+    const relevant = selectedMonthEntries.filter(e => e.emergencyOt);
+    return {
+      inbound: relevant.reduce((acc, curr) => acc + (curr.inbound || 0), 0),
+      outbound: relevant.reduce((acc, curr) => acc + (curr.outbound || 0), 0)
+    };
+  }, [selectedMonthEntries]);
+
+  const previousMonthInbound = useMemo(() => {
+    const previousDate = new Date(selectedYear, selectedMonth - 1, 1);
+    const prevMonth = previousDate.getMonth();
+    const prevYear = previousDate.getFullYear();
+    return entries
+      .filter(e => {
+        const d = new Date(e.date);
+        return d.getMonth() === prevMonth && d.getFullYear() === prevYear && !e.emergencyOt;
+      })
+      .reduce((acc, curr) => acc + (curr.inbound || 0), 0);
+  }, [entries, selectedMonth, selectedYear]);
+
+  const monthlyInboundPercent = Math.min(100, (monthlyStats.inbound / MILESTONES[2]) * 100);
+  const previousInboundPercent = Math.min(100, (previousMonthInbound / MILESTONES[2]) * 100);
+  const monthlyDeltaPercent = monthlyInboundPercent - previousInboundPercent;
+  const monthlyStatus = monthlyInboundPercent < 40 ? 'OFF TRACK' : monthlyInboundPercent < 70 ? 'AT RISK' : 'ON TRACK';
+  const hasMonthlyData = selectedMonthEntries.length > 0;
+
+  const milestoneProgress = useMemo(() => {
+    const inbound = monthlyStats.inbound;
+    let target = MILESTONES[0];
+    let previous = 0;
+    if (inbound >= MILESTONES[2]) {
+      target = MILESTONES[2];
+      previous = MILESTONES[1];
+    } else if (inbound >= MILESTONES[1]) {
+      target = MILESTONES[1];
+      previous = MILESTONES[0];
+    }
+    const span = target - previous || 1;
+    const progress = Math.min(100, Math.max(0, ((inbound - previous) / span) * 100));
+    return { target, previous, progress };
+  }, [monthlyStats.inbound]);
+
+  const selectedMonthLabel = `${MONTH_NAMES[selectedMonth]} ${selectedYear}`;
+  const monthlyStatusClasses = monthlyStatus === 'ON TRACK'
+    ? 'bg-emerald-500/20 text-emerald-200 border-emerald-500/40'
+    : monthlyStatus === 'AT RISK'
+      ? 'bg-amber-500/20 text-amber-200 border-amber-500/40'
+      : 'bg-rose-500/20 text-rose-200 border-rose-500/40';
+  const monthlyDeltaLabel = `${monthlyDeltaPercent >= 0 ? '▲' : '▼'}${Math.abs(Math.round(monthlyDeltaPercent))}% vs last month`;
 
   const formatDateInput = (date: Date) => date.toISOString().split('T')[0];
 
@@ -1268,7 +1319,7 @@ export default function App() {
       empId: entry.userId,
       date: entry.date,
       shiftType: entry.shiftType,
-      shiftLabel: entry.emergencyOt ? 'Emergency OT' : entry.shiftType,
+      shiftLabel: entry.emergencyOt ? 'OT' : entry.shiftType,
       inbound: entry.inbound || 0,
       outbound: entry.outbound || 0,
       loginSec: timeToSeconds(entry.currentLogin || '00:00:00'),
@@ -2240,7 +2291,7 @@ export default function App() {
                       className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
                     />
                     <label htmlFor="emergency-ot" className="text-[9px] font-black uppercase tracking-widest text-slate-500">
-                      Emergency OT (Min 1 Hour)
+                      OT (Min 1 Hour)
                     </label>
                   </div>
 
@@ -2304,32 +2355,108 @@ export default function App() {
                   {(otTrigger || emergencyOtEligible) && (
                     <div className="p-3 bg-rose-500/10 rounded-xl border border-rose-500/20 text-center animate-pulse">
                       <div className="text-[8px] font-black text-rose-600 uppercase tracking-widest flex items-center justify-center gap-2">
-                        <ZapIcon size={12} /> {emergencyOt ? 'Emergency OT' : 'Overtime Detected'}: {secondsToTime(otSec)}
+                        <ZapIcon size={12} /> {emergencyOt ? 'OT' : 'Overtime Detected'}: {secondsToTime(otSec)}
                       </div>
                     </div>
                   )}
                 </div>
 
-                <div className={`p-8 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden bg-slate-900`}>
-                  <div className="absolute -top-10 -right-10 p-10 opacity-10 rotate-12"><TrophyIcon size={150} /></div>
-                  <p className="text-[10px] font-black uppercase opacity-60 mb-6 tracking-widest">Monthly Inbound Target</p>
-                  <div className="flex gap-4 mb-8">
-                    <div className="flex-1 p-3 bg-white/5 rounded-2xl border border-white/10 text-center"><div className="text-[8px] font-black opacity-40 uppercase mb-1">Inbound</div><div className="text-2xl font-black tracking-tighter leading-none">{monthlyStats.inbound}</div></div>
-                    <div className="flex-1 p-3 bg-white/5 rounded-2xl border border-white/10 text-center"><div className="text-[8px] font-black opacity-40 uppercase mb-1">Outbound</div><div className="text-2xl font-black tracking-tighter leading-none">{monthlyStats.outbound}</div></div>
-                  </div>
-                  <div className="flex gap-4 mb-8">
-                    <div className="flex-1 p-3 bg-white/5 rounded-2xl border border-white/10 text-center"><div className="text-[8px] font-black opacity-40 uppercase mb-1">Emergency Inbound</div><div className="text-xl font-black tracking-tighter leading-none">{monthlyEmergencyStats.inbound}</div></div>
-                    <div className="flex-1 p-3 bg-white/5 rounded-2xl border border-white/10 text-center"><div className="text-[8px] font-black opacity-40 uppercase mb-1">Emergency Outbound</div><div className="text-xl font-black tracking-tighter leading-none">{monthlyEmergencyStats.outbound}</div></div>
-                  </div>
-                  <div className="space-y-4 relative z-10">
-                    <div className="flex justify-between items-center text-[9px] font-black uppercase opacity-80"><span>Milestone Reach</span><span>{Math.round(Math.min(100, (monthlyStats.inbound / 2500) * 100))}%</span></div>
-                    <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden shadow-inner"><div className="h-full bg-indigo-400 transition-all duration-1000" style={{ width: `${Math.min(100, (monthlyStats.inbound / 2500) * 100)}%` }} /></div>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {MILESTONES.map((target) => (
-                        <div key={target} className={`flex flex-col items-center p-2 rounded-xl border border-white/5 transition-all duration-500 ${monthlyStats.inbound >= target ? 'bg-white/20 border-white/20' : 'opacity-20'}`}><span className="text-[9px] font-black">{target}</span></div>
-                      ))}
+                <div className="p-8 rounded-[2.5rem] text-white shadow-2xl bg-slate-900 border border-white/5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Monthly Inbound Target</p>
+                      <h3 className="text-lg font-black tracking-tight">Monthly Inbound</h3>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-1 text-[8px] font-black uppercase tracking-widest rounded-full border ${monthlyStatusClasses}`}>
+                        {monthlyStatus}
+                      </span>
+                      <div className="relative flex items-center gap-1 rounded-xl border border-white/10 bg-white/5 px-2 py-1">
+                        <select
+                          value={selectedMonth}
+                          onChange={(e) => setSelectedMonth(parseInt(e.target.value, 10))}
+                          className="appearance-none bg-transparent text-[9px] font-black uppercase tracking-widest text-slate-200 pr-4"
+                        >
+                          {MONTH_NAMES.map((label, idx) => (
+                            <option key={label} value={idx} className="text-slate-900">
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="text-[8px] font-black text-slate-500">-</span>
+                        <select
+                          value={selectedYear}
+                          onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
+                          className="appearance-none bg-transparent text-[9px] font-black uppercase tracking-widest text-slate-200 pr-4"
+                        >
+                          {yearOptions.map((year) => (
+                            <option key={year} value={year} className="text-slate-900">
+                              {year}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="absolute right-2 text-[9px] text-slate-400">▼</span>
+                      </div>
                     </div>
                   </div>
+
+                  {!hasMonthlyData ? (
+                    <div className="mt-8 text-[11px] font-bold uppercase tracking-widest text-slate-400">No data available</div>
+                  ) : (
+                    <>
+                      <div className="mt-6 text-3xl font-black tracking-tight">
+                        {monthlyStats.inbound} / {MILESTONES[2]}
+                      </div>
+                      <div className="mt-5 flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-slate-400">
+                        <span>Milestone Progress</span>
+                        <span>Target: {milestoneProgress.target}</span>
+                      </div>
+                      <div className="mt-2 h-3 w-full rounded-full bg-white/10 overflow-hidden shadow-inner">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-indigo-400 via-indigo-300 to-emerald-400 shadow-[0_0_10px_rgba(99,102,241,0.6)]"
+                          style={{ width: `${milestoneProgress.progress}%` }}
+                        />
+                      </div>
+                      <div className="mt-3 flex items-center justify-between text-[10px] font-bold text-slate-300">
+                        <span>{Math.round(monthlyInboundPercent)}% achieved</span>
+                        <span className={monthlyDeltaPercent >= 0 ? 'text-emerald-300' : 'text-rose-300'}>
+                          {monthlyDeltaLabel}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div className="p-8 rounded-[2.5rem] text-white shadow-2xl bg-slate-900 border border-white/5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Call Breakdown</p>
+                      <h3 className="text-sm font-black uppercase tracking-widest">{selectedMonthLabel}</h3>
+                    </div>
+                  </div>
+
+                  {!hasMonthlyData ? (
+                    <div className="mt-8 text-[11px] font-bold uppercase tracking-widest text-slate-400">No data available</div>
+                  ) : (
+                    <div className="mt-6 space-y-4 text-[12px]">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-300">Inbound</span>
+                        <span className="font-black text-xl text-white text-right">{monthlyStats.inbound}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-300">Outbound</span>
+                        <span className="font-black text-lg text-slate-100 text-right">{monthlyStats.outbound}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-300">OT Inbound</span>
+                        <span className="font-black text-lg text-slate-100 text-right">{monthlyOtStats.inbound}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-300">OT Outbound</span>
+                        <span className="font-black text-lg text-slate-100 text-right">{monthlyOtStats.outbound}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
