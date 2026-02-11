@@ -2134,6 +2134,7 @@ export default function App() {
                   <table className="w-full text-left text-[13px] border-collapse min-w-[1300px]">
                     <thead className="bg-slate-50 dark:bg-slate-950 text-slate-400 uppercase font-black tracking-[0.1em] text-[10px] sticky top-0 z-10 border-b dark:border-slate-800">
                       <tr>
+                        <th className="px-4 py-5">Agent</th>
                         <th className="px-4 py-5 whitespace-nowrap">Extraction Date</th>
                         <th className="px-4 py-5">Shift</th>
                         <th className="px-4 py-5">Login Dur.</th>
@@ -2160,6 +2161,10 @@ export default function App() {
 
                         return (
                           <tr key={e.id} className="hover:bg-indigo-50/30 dark:hover:bg-indigo-950/10 transition-colors">
+                            <td className="px-4 py-5">
+                              <div className="font-black uppercase dark:text-white">{e.userName || e.userId}</div>
+                              <div className="text-[9px] text-slate-400 font-mono uppercase">{e.userId}</div>
+                            </td>
                             <td className="px-4 py-5">
                               <div className="font-black dark:text-slate-200">{new Date(e.date).toLocaleDateString()}</div>
                               <div className="text-[9px] text-slate-400 uppercase font-bold">{new Date(e.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
@@ -2188,7 +2193,7 @@ export default function App() {
                         );
                       })}
                       {paginatedDetailsEntries.length === 0 && (
-                        <tr><td colSpan={16} className="px-6 py-24 text-center text-slate-400 font-bold uppercase tracking-[0.2em] opacity-30">No sequential entries recorded matching search criteria</td></tr>
+                        <tr><td colSpan={17} className="px-6 py-24 text-center text-slate-400 font-bold uppercase tracking-[0.2em] opacity-30">No sequential entries recorded matching search criteria</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -2543,7 +2548,7 @@ export default function App() {
                 <div className="relative mb-8 group"><SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-amber-500 transition-colors" size={16} /><input type="text" placeholder="Search team by ID or name..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full py-5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none pl-14 pr-8 text-xs font-bold border focus:border-amber-500/20 dark:text-white shadow-inner" /></div>
                 <div className="flex justify-between items-center mb-6">
                   <div className="flex items-center gap-4">
-                    <button onClick={() => { setSelectedUsers(allUsers.map(u => u.id)); }} className="px-4 py-2 bg-slate-200 dark:bg-slate-800 rounded-xl text-[10px] font-black uppercase">Select All</button>
+                    <button onClick={() => { setSelectedUsers(allUsers.filter(u => u.role !== 'admin').map(u => u.id)); }} className="px-4 py-2 bg-slate-200 dark:bg-slate-800 rounded-xl text-[10px] font-black uppercase">Select All</button>
                     <button onClick={() => { setSelectedUsers([]); }} className="px-4 py-2 bg-slate-200 dark:bg-slate-800 rounded-xl text-[10px] font-black uppercase">Clear Selection</button>
                     <span className="text-[10px] text-slate-400 font-bold uppercase">{selectedUsers.length} user{selectedUsers.length !== 1 ? 's' : ''} selected</span>
                   </div>
