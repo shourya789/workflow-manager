@@ -115,6 +115,7 @@ export default function App() {
   const [masterReasonFilter, setMasterReasonFilter] = useState<'All' | 'Missing' | 'Provided'>('All');
   const [masterEarlyLoginFilter, setMasterEarlyLoginFilter] = useState<'All' | 'Yes' | 'No'>('All');
   const [masterEarlyLogoutFilter, setMasterEarlyLogoutFilter] = useState<'All' | 'Yes' | 'No'>('All');
+  const [masterUnderShiftFilter, setMasterUnderShiftFilter] = useState<'All' | 'Full Day' | 'Half Day'>('All');
   const [masterQuickLoginMin, setMasterQuickLoginMin] = useState('');
   const [masterQuickBreakMin, setMasterQuickBreakMin] = useState('');
   const [masterQuickTalkMin, setMasterQuickTalkMin] = useState('');
@@ -905,6 +906,53 @@ export default function App() {
     };
   }, [overviewEntries]);
 
+  const todayEntries = useMemo(() => {
+    if (user?.role !== 'admin') return [] as TimeData[];
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = new Date();
+    end.setHours(23, 59, 59, 999);
+    return (masterDataServer || []).filter(d => {
+      if (isBlankEntry(d)) return false;
+      const entryDate = new Date(d.date);
+      return entryDate >= start && entryDate <= end;
+    });
+  }, [masterDataServer, user]);
+
+  const todayKpi = useMemo(() => {
+    let inboundTotal = 0;
+    let outboundTotal = 0;
+    let halfDayCount = 0;
+    let fullDayCount = 0;
+    let underShiftFullDay = 0;
+    let underShiftHalfDay = 0;
+
+    for (const entry of todayEntries) {
+      inboundTotal += entry.inbound || 0;
+      outboundTotal += entry.outbound || 0;
+      if (entry.shiftType === 'Full Day') {
+        fullDayCount += 1;
+        if (timeToSeconds(entry.currentLogin || '00:00:00') < 9 * 3600) {
+          underShiftFullDay += 1;
+        }
+      } else {
+        halfDayCount += 1;
+        if (timeToSeconds(entry.currentLogin || '00:00:00') < 4.5 * 3600) {
+          underShiftHalfDay += 1;
+        }
+      }
+    }
+
+    return {
+      inboundTotal,
+      outboundTotal,
+      halfDayCount,
+      fullDayCount,
+      underShiftFullDay,
+      underShiftHalfDay
+    };
+  }, [todayEntries]);
+
   const filteredMasterData = useMemo(() => {
     let result = masterData.filter(entry => !isBlankEntry(entry));
 
@@ -969,6 +1017,16 @@ export default function App() {
         const shiftBase = d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
         const overtime = loginSec > shiftBase;
         return masterOvertimeFilter === 'Yes' ? overtime : !overtime;
+      });
+    }
+
+    if (masterUnderShiftFilter !== 'All') {
+      result = result.filter(d => {
+        if (masterUnderShiftFilter === 'Full Day' && d.shiftType !== 'Full Day') return false;
+        if (masterUnderShiftFilter === 'Half Day' && d.shiftType !== 'Half Day') return false;
+        const loginSec = timeToSeconds(d.currentLogin || '00:00:00');
+        const shiftBase = d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+        return loginSec < shiftBase;
       });
     }
 
@@ -1046,6 +1104,7 @@ export default function App() {
     masterDateEnd,
     masterBreakViolationFilter,
     masterOvertimeFilter,
+    masterUnderShiftFilter,
     masterReasonFilter,
     masterQuickLoginMin,
     masterQuickBreakMin,
@@ -1072,6 +1131,68 @@ export default function App() {
     setMasterSearchQuery('');
     setMasterAgentFilter('');
     setMasterShiftFilter('All');
+  };
+
+  const applyTodayToMaster = () => {
+    const today = formatDateInput(new Date());
+    setMasterDateStart(today);
+    setMasterDateEnd(today);
+    setMasterSearchQuery('');
+    setMasterAgentFilter('');
+    setMasterStatusFilter('All');
+    setMasterShiftFilter('All');
+    setMasterBreakViolationFilter('All');
+    setMasterOvertimeFilter('All');
+    setMasterUnderShiftFilter('All');
+    setMasterReasonFilter('All');
+    setMasterEarlyLoginFilter('All');
+    setMasterEarlyLogoutFilter('All');
+    setMasterQuickLoginMin('');
+    setMasterQuickBreakMin('');
+    setMasterQuickTalkMin('');
+    setMasterQuickInboundMin('');
+    setMasterQuickOutboundMin('');
+    setMasterSortBy('productivity');
+    setMasterJumpDate('');
+    setMasterFocusMode('all');
+  };
+
+  const openTodayInbound = () => {
+    applyTodayToMaster();
+    setMasterSortBy('inbound');
+    setActiveTab('all-logs');
+  };
+
+  const openTodayOutbound = () => {
+    applyTodayToMaster();
+    setMasterSortBy('outbound');
+    setActiveTab('all-logs');
+  };
+
+  const openTodayHalfDay = () => {
+    applyTodayToMaster();
+    setMasterShiftFilter('Half Day');
+    setActiveTab('all-logs');
+  };
+
+  const openTodayFullDay = () => {
+    applyTodayToMaster();
+    setMasterShiftFilter('Full Day');
+    setActiveTab('all-logs');
+  };
+
+  const openUnderShiftFullDay = () => {
+    applyTodayToMaster();
+    setMasterShiftFilter('Full Day');
+    setMasterUnderShiftFilter('Full Day');
+    setActiveTab('all-logs');
+  };
+
+  const openUnderShiftHalfDay = () => {
+    applyTodayToMaster();
+    setMasterShiftFilter('Half Day');
+    setMasterUnderShiftFilter('Half Day');
+    setActiveTab('all-logs');
   };
 
   const applyOverviewRangeToOtApprovals = () => {
@@ -1160,6 +1281,7 @@ export default function App() {
     masterAgentFilter,
     masterBreakViolationFilter,
     masterOvertimeFilter,
+    masterUnderShiftFilter,
     masterReasonFilter,
     masterEarlyLoginFilter,
     masterEarlyLogoutFilter,
@@ -1994,6 +2116,33 @@ export default function App() {
               )}
 
               <div className="dashboard bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-sm border dark:border-slate-800">
+                <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
+                  <button onClick={openTodayInbound} className="p-4 rounded-2xl bg-indigo-50 dark:bg-slate-950 border border-indigo-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Inbound Today</p>
+                    <div className="text-2xl font-black text-indigo-600 mt-2">{todayKpi.inboundTotal}</div>
+                  </button>
+                  <button onClick={openTodayOutbound} className="p-4 rounded-2xl bg-emerald-50 dark:bg-slate-950 border border-emerald-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Outbound Today</p>
+                    <div className="text-2xl font-black text-emerald-600 mt-2">{todayKpi.outboundTotal}</div>
+                  </button>
+                  <button onClick={openTodayHalfDay} className="p-4 rounded-2xl bg-amber-50 dark:bg-slate-950 border border-amber-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Half Day Today</p>
+                    <div className="text-2xl font-black text-amber-600 mt-2">{todayKpi.halfDayCount}</div>
+                  </button>
+                  <button onClick={openTodayFullDay} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Full Day Today</p>
+                    <div className="text-2xl font-black text-slate-900 dark:text-white mt-2">{todayKpi.fullDayCount}</div>
+                  </button>
+                  <button onClick={openUnderShiftFullDay} className="p-4 rounded-2xl bg-rose-50 dark:bg-slate-950 border border-rose-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Under Shift Full Day</p>
+                    <div className="text-2xl font-black text-rose-600 mt-2">{todayKpi.underShiftFullDay}</div>
+                  </button>
+                  <button onClick={openUnderShiftHalfDay} className="p-4 rounded-2xl bg-orange-50 dark:bg-slate-950 border border-orange-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Under Shift Half Day</p>
+                    <div className="text-2xl font-black text-orange-600 mt-2">{todayKpi.underShiftHalfDay}</div>
+                  </button>
+                </div>
+
                 <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
                   <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
                     <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Total Login Users</p>
