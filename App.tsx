@@ -100,20 +100,11 @@ type MasterFiltersDraft = {
   agentFilter: string;
   dateStart: string;
   dateEnd: string;
-  jumpDate: string;
   statusFilter: 'All' | EntryStatus;
   shiftFilter: 'All' | ShiftType;
   breakViolationFilter: 'All' | 'Yes' | 'No';
   overtimeFilter: 'All' | 'Yes' | 'No';
-  reasonFilter: 'All' | 'Missing' | 'Provided';
-  earlyLoginFilter: 'All' | 'Yes' | 'No';
-  earlyLogoutFilter: 'All' | 'Yes' | 'No';
   underShiftFilter: 'All' | 'Full Day' | 'Half Day';
-  quickLoginMin: string;
-  quickBreakMin: string;
-  quickTalkMin: string;
-  quickInboundMin: string;
-  quickOutboundMin: string;
   sortBy: 'productivity' | 'break' | 'ot' | 'talk' | 'inbound' | 'outbound';
 };
 
@@ -122,20 +113,11 @@ const createDefaultMasterFilters = (): MasterFiltersDraft => ({
   agentFilter: '',
   dateStart: '',
   dateEnd: '',
-  jumpDate: '',
   statusFilter: 'All',
   shiftFilter: 'All',
   breakViolationFilter: 'All',
   overtimeFilter: 'All',
-  reasonFilter: 'All',
-  earlyLoginFilter: 'All',
-  earlyLogoutFilter: 'All',
   underShiftFilter: 'All',
-  quickLoginMin: '',
-  quickBreakMin: '',
-  quickTalkMin: '',
-  quickInboundMin: '',
-  quickOutboundMin: '',
   sortBy: 'productivity'
 });
 
@@ -169,17 +151,8 @@ export default function App() {
   const [masterAgentFilter, setMasterAgentFilter] = useState('');
   const [masterBreakViolationFilter, setMasterBreakViolationFilter] = useState<'All' | 'Yes' | 'No'>('All');
   const [masterOvertimeFilter, setMasterOvertimeFilter] = useState<'All' | 'Yes' | 'No'>('All');
-  const [masterReasonFilter, setMasterReasonFilter] = useState<'All' | 'Missing' | 'Provided'>('All');
-  const [masterEarlyLoginFilter, setMasterEarlyLoginFilter] = useState<'All' | 'Yes' | 'No'>('All');
-  const [masterEarlyLogoutFilter, setMasterEarlyLogoutFilter] = useState<'All' | 'Yes' | 'No'>('All');
   const [masterUnderShiftFilter, setMasterUnderShiftFilter] = useState<'All' | 'Full Day' | 'Half Day'>('All');
-  const [masterQuickLoginMin, setMasterQuickLoginMin] = useState('');
-  const [masterQuickBreakMin, setMasterQuickBreakMin] = useState('');
-  const [masterQuickTalkMin, setMasterQuickTalkMin] = useState('');
-  const [masterQuickInboundMin, setMasterQuickInboundMin] = useState('');
-  const [masterQuickOutboundMin, setMasterQuickOutboundMin] = useState('');
   const [masterSortBy, setMasterSortBy] = useState<'productivity' | 'break' | 'ot' | 'talk' | 'inbound' | 'outbound'>('productivity');
-  const [masterJumpDate, setMasterJumpDate] = useState('');
   const [masterFocusMode, setMasterFocusMode] = useState<'all' | 'needs' | 'top' | 'pendingOt'>('all');
   const [overviewRange, setOverviewRange] = useState<'today' | 'weekly' | 'monthly' | 'yearly' | 'custom'>('today');
   const [overviewCustomStart, setOverviewCustomStart] = useState('');
@@ -193,6 +166,7 @@ export default function App() {
   const [otApprovalDateStart, setOtApprovalDateStart] = useState('');
   const [otApprovalDateEnd, setOtApprovalDateEnd] = useState('');
   const [otApprovalShiftFilter, setOtApprovalShiftFilter] = useState<'All' | ShiftType>('All');
+  const [otApprovalStatusFilter, setOtApprovalStatusFilter] = useState<'All' | 'Pending' | 'Approved' | 'Rejected'>('All');
   const [rejectionModalOpen, setRejectionModalOpen] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
   const [actionedEntry, setActionedEntry] = useState<TimeData | null>(null);
@@ -203,6 +177,8 @@ export default function App() {
   const [kpiModalTitle, setKpiModalTitle] = useState('');
   const [kpiModalRows, setKpiModalRows] = useState<KpiRow[]>([]);
   const [masterFiltersDraft, setMasterFiltersDraft] = useState<MasterFiltersDraft>(() => createDefaultMasterFilters());
+  const [masterFiltersApplied, setMasterFiltersApplied] = useState(true);
+  const [showMasterAdvancedFilters, setShowMasterAdvancedFilters] = useState(false);
 
   // Pagination state for admin tables
   const [masterCurrentPage, setMasterCurrentPage] = useState(1);
@@ -816,7 +792,8 @@ export default function App() {
       const loginSec = timeToSeconds(d.currentLogin || '00:00:00');
       const shiftBase = d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
       const extra = loginSec - shiftBase;
-      return loginSec >= eligibilitySec && extra > 3600 && d.status === 'Pending';
+      if (!(loginSec >= eligibilitySec && extra > 3600)) return false;
+      return d.status === 'Pending' || d.status === 'Approved' || d.status === 'Rejected';
     });
   }, [masterData]);
 
@@ -843,8 +820,11 @@ export default function App() {
     if (otApprovalShiftFilter !== 'All') {
       result = result.filter(d => d.shiftType === otApprovalShiftFilter);
     }
+    if (otApprovalStatusFilter !== 'All') {
+      result = result.filter(d => d.status === otApprovalStatusFilter);
+    }
     return result;
-  }, [otApprovalEntries, otApprovalSearchQuery, otApprovalDateStart, otApprovalDateEnd, otApprovalShiftFilter]);
+  }, [otApprovalEntries, otApprovalSearchQuery, otApprovalDateStart, otApprovalDateEnd, otApprovalShiftFilter, otApprovalStatusFilter]);
 
   const getOverviewBounds = () => {
     const end = new Date();
@@ -1147,8 +1127,10 @@ export default function App() {
 
   const filteredMasterData = useMemo(() => {
     let result = masterData.filter(entry => !isBlankEntry(entry));
+    const searchTerm = masterSearchQuery.trim().toLowerCase();
+    const searchOverride = !!searchTerm && !masterFiltersApplied;
 
-    if (masterFocusMode !== 'all') {
+    if (!searchOverride && masterFocusMode !== 'all') {
       const focusIds = masterFocusMode === 'needs'
         ? overviewDerived.focusIds.needs
         : masterFocusMode === 'top'
@@ -1157,13 +1139,19 @@ export default function App() {
       result = result.filter(entry => focusIds.has(entry.id));
     }
 
-    if (masterSearchQuery) {
-      const q = masterSearchQuery.toLowerCase();
+    if (searchTerm) {
+      const q = searchTerm;
       result = result.filter(d =>
         d.userName.toLowerCase().includes(q) ||
         d.userId.toLowerCase().includes(q) ||
-        new Date(d.date).toLocaleDateString('en-GB').includes(q)
+        formatDateInput(new Date(d.date)).includes(q) ||
+        new Date(d.date).toLocaleDateString('en-GB').includes(q) ||
+        (d.reason || '').toLowerCase().includes(q)
       );
+    }
+
+    if (searchOverride) {
+      return result;
     }
 
     if (masterAgentFilter) {
@@ -1222,41 +1210,6 @@ export default function App() {
       });
     }
 
-    if (masterReasonFilter !== 'All') {
-      result = result.filter(d => {
-        const hasReason = !!(d.reason && d.reason.trim());
-        return masterReasonFilter === 'Provided' ? hasReason : !hasReason;
-      });
-    }
-
-    const quickLoginMin = Number(masterQuickLoginMin);
-    if (!Number.isNaN(quickLoginMin) && quickLoginMin > 0) {
-      result = result.filter(d => timeToSeconds(d.currentLogin || '00:00:00') >= quickLoginMin * 60);
-    }
-
-    const quickBreakMin = Number(masterQuickBreakMin);
-    if (!Number.isNaN(quickBreakMin) && quickBreakMin > 0) {
-      result = result.filter(d => {
-        const breakSec = timeToSeconds(d.pause || '00:00:00') + timeToSeconds(d.dispo || '00:00:00') + timeToSeconds(d.dead || '00:00:00');
-        return breakSec >= quickBreakMin * 60;
-      });
-    }
-
-    const quickTalkMin = Number(masterQuickTalkMin);
-    if (!Number.isNaN(quickTalkMin) && quickTalkMin > 0) {
-      result = result.filter(d => timeToSeconds(d.talk || '00:00:00') >= quickTalkMin * 60);
-    }
-
-    const quickInboundMin = Number(masterQuickInboundMin);
-    if (!Number.isNaN(quickInboundMin) && quickInboundMin > 0) {
-      result = result.filter(d => (d.inbound || 0) >= quickInboundMin);
-    }
-
-    const quickOutboundMin = Number(masterQuickOutboundMin);
-    if (!Number.isNaN(quickOutboundMin) && quickOutboundMin > 0) {
-      result = result.filter(d => (d.outbound || 0) >= quickOutboundMin);
-    }
-
     const sorted = [...result].sort((a, b) => {
       if (masterSortBy === 'productivity') {
         return computeEntryScore(a) - computeEntryScore(b);
@@ -1297,14 +1250,9 @@ export default function App() {
     masterBreakViolationFilter,
     masterOvertimeFilter,
     masterUnderShiftFilter,
-    masterReasonFilter,
-    masterQuickLoginMin,
-    masterQuickBreakMin,
-    masterQuickTalkMin,
-    masterQuickInboundMin,
-    masterQuickOutboundMin,
     masterSortBy,
     masterFocusMode,
+    masterFiltersApplied,
     overviewDerived
   ]);
 
@@ -1323,34 +1271,30 @@ export default function App() {
     setMasterAgentFilter(source.agentFilter);
     setMasterDateStart(source.dateStart);
     setMasterDateEnd(source.dateEnd);
-    setMasterJumpDate(source.jumpDate);
     setMasterStatusFilter(source.statusFilter);
     setMasterShiftFilter(source.shiftFilter);
     setMasterBreakViolationFilter(source.breakViolationFilter);
     setMasterOvertimeFilter(source.overtimeFilter);
-    setMasterReasonFilter(source.reasonFilter);
-    setMasterEarlyLoginFilter(source.earlyLoginFilter);
-    setMasterEarlyLogoutFilter(source.earlyLogoutFilter);
     setMasterUnderShiftFilter(source.underShiftFilter);
-    setMasterQuickLoginMin(source.quickLoginMin);
-    setMasterQuickBreakMin(source.quickBreakMin);
-    setMasterQuickTalkMin(source.quickTalkMin);
-    setMasterQuickInboundMin(source.quickInboundMin);
-    setMasterQuickOutboundMin(source.quickOutboundMin);
     setMasterSortBy(source.sortBy);
     setMasterCurrentPage(1);
+    setMasterFiltersApplied(true);
   };
 
   const resetMasterFilters = () => {
-    const next = createDefaultMasterFilters();
+    const next = buildTodayMasterFilters();
     setMasterFiltersDraft(next);
     applyMasterFilters(next);
+    setMasterFiltersApplied(true);
+    setMasterFocusMode('all');
+    fetchMasterData(true);
   };
 
   const buildTodayMasterFilters = (overrides: Partial<MasterFiltersDraft> = {}) => {
     const today = formatDateInput(new Date());
     return {
       ...createDefaultMasterFilters(),
+      searchQuery: '',
       dateStart: today,
       dateEnd: today,
       ...overrides
@@ -1368,6 +1312,9 @@ export default function App() {
     };
     setMasterFiltersDraft(next);
     applyMasterFilters(next);
+    setMasterFiltersApplied(true);
+    setMasterFocusMode('all');
+    fetchMasterData(true);
   };
 
   const applyTodayToMaster = () => {
@@ -1375,6 +1322,8 @@ export default function App() {
     setMasterFiltersDraft(next);
     applyMasterFilters(next);
     setMasterFocusMode('all');
+    setMasterFiltersApplied(true);
+    fetchMasterData(true);
   };
 
   const openTodayInbound = () => {
@@ -1382,6 +1331,8 @@ export default function App() {
     setMasterFiltersDraft(next);
     applyMasterFilters(next);
     setMasterFocusMode('all');
+    setMasterFiltersApplied(true);
+    fetchMasterData(true);
     setActiveTab('all-logs');
   };
 
@@ -1390,6 +1341,8 @@ export default function App() {
     setMasterFiltersDraft(next);
     applyMasterFilters(next);
     setMasterFocusMode('all');
+    setMasterFiltersApplied(true);
+    fetchMasterData(true);
     setActiveTab('all-logs');
   };
 
@@ -1398,6 +1351,8 @@ export default function App() {
     setMasterFiltersDraft(next);
     applyMasterFilters(next);
     setMasterFocusMode('all');
+    setMasterFiltersApplied(true);
+    fetchMasterData(true);
     setActiveTab('all-logs');
   };
 
@@ -1406,6 +1361,8 @@ export default function App() {
     setMasterFiltersDraft(next);
     applyMasterFilters(next);
     setMasterFocusMode('all');
+    setMasterFiltersApplied(true);
+    fetchMasterData(true);
     setActiveTab('all-logs');
   };
 
@@ -1414,6 +1371,8 @@ export default function App() {
     setMasterFiltersDraft(next);
     applyMasterFilters(next);
     setMasterFocusMode('all');
+    setMasterFiltersApplied(true);
+    fetchMasterData(true);
     setActiveTab('all-logs');
   };
 
@@ -1422,7 +1381,18 @@ export default function App() {
     setMasterFiltersDraft(next);
     applyMasterFilters(next);
     setMasterFocusMode('all');
+    setMasterFiltersApplied(true);
+    fetchMasterData(true);
     setActiveTab('all-logs');
+  };
+
+  const applySmartSearch = (query: string) => {
+    const trimmed = query.trim();
+    setMasterSearchQuery(trimmed);
+    setMasterFiltersApplied(false);
+    setMasterFocusMode('all');
+    setMasterCurrentPage(1);
+    fetchMasterData(true);
   };
 
   const applyOverviewRangeToOtApprovals = () => {
@@ -1430,6 +1400,7 @@ export default function App() {
     setOtApprovalDateEnd(formatDateInput(overviewRangeBounds.end));
     setOtApprovalShiftFilter('All');
     setOtApprovalSearchQuery('');
+    setOtApprovalStatusFilter('All');
   };
 
   const openNeedsAttention = () => {
@@ -1511,16 +1482,8 @@ export default function App() {
     masterBreakViolationFilter,
     masterOvertimeFilter,
     masterUnderShiftFilter,
-    masterReasonFilter,
-    masterEarlyLoginFilter,
-    masterEarlyLogoutFilter,
-    masterQuickLoginMin,
-    masterQuickBreakMin,
-    masterQuickTalkMin,
-    masterQuickInboundMin,
-    masterQuickOutboundMin,
     masterSortBy,
-    masterJumpDate
+    masterSearchQuery
   ]);
 
   useEffect(() => {
@@ -2262,12 +2225,26 @@ export default function App() {
                   <h2 className="text-xl font-black uppercase tracking-wider dark:text-white">OT Approvals</h2>
                   <p className="text-slate-400 text-[10px] font-bold mt-1 uppercase tracking-widest">Pending OT requests requiring approval</p>
                 </div>
-                <button
-                  onClick={() => setActiveTab('all-logs')}
-                  className="bg-slate-200 dark:bg-slate-800 px-4 py-3 rounded-xl text-[10px] font-black uppercase"
-                >
-                  Open Master Stream
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => exportDailyPerformanceReport(filteredOtApprovals.filter(e => e.status === 'Approved'))}
+                    className="bg-emerald-600 text-white px-4 py-3 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-700 transition-colors"
+                  >
+                    Download Approved
+                  </button>
+                  <button
+                    onClick={() => exportDailyPerformanceReport(filteredOtApprovals.filter(e => e.status === 'Rejected'))}
+                    className="bg-rose-600 text-white px-4 py-3 rounded-xl text-[10px] font-black uppercase hover:bg-rose-700 transition-colors"
+                  >
+                    Download Rejected
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('all-logs')}
+                    className="bg-slate-200 dark:bg-slate-800 px-4 py-3 rounded-xl text-[10px] font-black uppercase"
+                  >
+                    Open Master Stream
+                  </button>
+                </div>
               </div>
 
               <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border dark:border-slate-800 shadow-sm space-y-6">
@@ -2297,6 +2274,15 @@ export default function App() {
                       <option value="All">All Shifts</option>
                       <option value="Full Day">Full Day</option>
                       <option value="Half Day">Half Day</option>
+                    </select>
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Status</label>
+                    <select value={otApprovalStatusFilter} onChange={(e) => setOtApprovalStatusFilter(e.target.value as any)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner appearance-none cursor-pointer">
+                      <option value="All">All</option>
+                      <option value="Pending">Pending</option>
+                      <option value="Approved">Approved</option>
+                      <option value="Rejected">Rejected</option>
                     </select>
                   </div>
                 </div>
@@ -2362,7 +2348,7 @@ export default function App() {
                         );
                       })}
                       {filteredOtApprovals.length === 0 && (
-                        <tr><td colSpan={6} className="px-6 py-24 text-center text-slate-400 font-bold uppercase tracking-widest opacity-30">No pending OT approvals</td></tr>
+                        <tr><td colSpan={6} className="px-6 py-24 text-center text-slate-400 font-bold uppercase tracking-widest opacity-30">No OT approvals found</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -2732,6 +2718,12 @@ export default function App() {
                       placeholder="Smart search: Agent, 2026-02-04, keyword in reason"
                       value={masterFiltersDraft.searchQuery}
                       onChange={(e) => setMasterFiltersDraft(prev => ({ ...prev, searchQuery: e.target.value }))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          applySmartSearch(masterFiltersDraft.searchQuery);
+                        }
+                      }}
                       list="master-search-list"
                       className="w-full py-4 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none pl-12 pr-6 text-xs font-bold border border-transparent focus:border-indigo-500/20 dark:text-white transition-all shadow-inner"
                     />
@@ -2742,13 +2734,19 @@ export default function App() {
                     </datalist>
                   </div>
                   <button
+                    onClick={() => applySmartSearch(masterFiltersDraft.searchQuery)}
+                    className="px-5 py-3 rounded-2xl bg-slate-900 text-white text-[10px] font-black uppercase hover:bg-slate-800 transition-colors"
+                  >
+                    Search
+                  </button>
+                  <button
                     onClick={resetMasterFilters}
                     className="px-5 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[10px] font-black uppercase hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                   >
                     Clear Filters
                   </button>
                   <button
-                    onClick={() => applyMasterFilters()}
+                    onClick={() => { applyMasterFilters(); fetchMasterData(true); }}
                     className="px-5 py-3 rounded-2xl bg-indigo-600 text-white text-[10px] font-black uppercase hover:bg-indigo-700 transition-colors"
                   >
                     Apply
@@ -2769,9 +2767,10 @@ export default function App() {
                     <button
                       onClick={() => {
                         const today = formatDateInput(new Date());
-                        const next = { ...masterFiltersDraft, dateStart: today, dateEnd: today, jumpDate: '' };
+                        const next = { ...masterFiltersDraft, searchQuery: '', dateStart: today, dateEnd: today };
                         setMasterFiltersDraft(next);
                         applyMasterFilters(next);
+                        fetchMasterData(true);
                       }}
                       className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase hover:bg-indigo-50 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                       type="button"
@@ -2782,14 +2781,15 @@ export default function App() {
                       onClick={() => {
                         const next = {
                           ...masterFiltersDraft,
+                          searchQuery: '',
                           sortBy: 'productivity',
                           breakViolationFilter: 'All',
                           overtimeFilter: 'All',
-                          statusFilter: 'All',
-                          quickTalkMin: ''
+                          statusFilter: 'All'
                         };
                         setMasterFiltersDraft(next);
                         applyMasterFilters(next);
+                        fetchMasterData(true);
                       }}
                       className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase hover:bg-indigo-50 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                       type="button"
@@ -2798,9 +2798,10 @@ export default function App() {
                     </button>
                     <button
                       onClick={() => {
-                        const next = { ...masterFiltersDraft, breakViolationFilter: 'Yes', overtimeFilter: 'All' };
+                        const next = { ...masterFiltersDraft, searchQuery: '', breakViolationFilter: 'Yes', overtimeFilter: 'All' };
                         setMasterFiltersDraft(next);
                         applyMasterFilters(next);
+                        fetchMasterData(true);
                       }}
                       className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase hover:bg-indigo-50 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                       type="button"
@@ -2809,9 +2810,10 @@ export default function App() {
                     </button>
                     <button
                       onClick={() => {
-                        const next = { ...masterFiltersDraft, overtimeFilter: 'Yes' };
+                        const next = { ...masterFiltersDraft, searchQuery: '', overtimeFilter: 'Yes' };
                         setMasterFiltersDraft(next);
                         applyMasterFilters(next);
+                        fetchMasterData(true);
                       }}
                       className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase hover:bg-indigo-50 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                       type="button"
@@ -2819,195 +2821,91 @@ export default function App() {
                       Overtime Review
                     </button>
                   </div>
-                </div>
-                <div className="flex flex-col md:flex-row gap-4">
-                  <div className="flex-1 md:flex-[2] space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Agent</label>
-                    <input
-                      type="text"
-                      value={masterFiltersDraft.agentFilter}
-                      onChange={(e) => setMasterFiltersDraft(prev => ({ ...prev, agentFilter: e.target.value }))}
-                      placeholder="Search agent name or ID"
-                      list="agent-list"
-                      className="w-full py-4 px-6 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner"
-                    />
-                    <datalist id="agent-list">
-                      {allUsers.map(u => (
-                        <option key={u.id} value={`${u.name} (${u.empId})`} />
-                      ))}
-                    </datalist>
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">From</label>
-                    <input
-                      type="date"
-                      value={masterFiltersDraft.dateStart}
-                      onChange={(e) => setMasterFiltersDraft(prev => ({ ...prev, dateStart: e.target.value }))}
-                      className="w-full p-3.5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold dark:text-white shadow-inner"
-                    />
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">To</label>
-                    <input
-                      type="date"
-                      value={masterFiltersDraft.dateEnd}
-                      onChange={(e) => setMasterFiltersDraft(prev => ({ ...prev, dateEnd: e.target.value }))}
-                      className="w-full p-3.5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold dark:text-white shadow-inner"
-                    />
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Jump Date</label>
-                    <input
-                      type="date"
-                      value={masterFiltersDraft.jumpDate}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setMasterFiltersDraft(prev => ({ ...prev, jumpDate: value, dateStart: value, dateEnd: value }));
-                      }}
-                      className="w-full p-3.5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold dark:text-white shadow-inner"
-                    />
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Status</label>
-                    <select
-                      value={masterFiltersDraft.statusFilter}
-                      onChange={(e) => setMasterFiltersDraft(prev => ({ ...prev, statusFilter: e.target.value as any }))}
-                      className="w-full py-4 px-6 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner appearance-none cursor-pointer"
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowMasterAdvancedFilters(v => !v)}
+                      className="px-4 py-2 rounded-2xl bg-slate-900 text-white text-[9px] font-black uppercase hover:bg-slate-800 transition-colors"
+                      type="button"
                     >
-                      <option value="All">All Statuses</option>
-                      <option value="Approved">Approved</option>
-                      <option value="Pending">Pending</option>
-                      <option value="Rejected">Rejected</option>
-                      <option value="N/A">N/A</option>
-                    </select>
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Shift</label>
-                    <select
-                      value={masterFiltersDraft.shiftFilter}
-                      onChange={(e) => setMasterFiltersDraft(prev => ({ ...prev, shiftFilter: e.target.value as any }))}
-                      className="w-full py-4 px-6 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner appearance-none cursor-pointer"
-                    >
-                      <option value="All">All Shifts</option>
-                      <option value="Full Day">Full Day</option>
-                      <option value="Half Day">Half Day</option>
-                    </select>
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Break Violation</label>
-                    <select
-                      value={masterFiltersDraft.breakViolationFilter}
-                      onChange={(e) => setMasterFiltersDraft(prev => ({ ...prev, breakViolationFilter: e.target.value as any }))}
-                      className="w-full py-4 px-6 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner appearance-none cursor-pointer"
-                    >
-                      <option value="All">All</option>
-                      <option value="Yes">Yes</option>
-                      <option value="No">No</option>
-                    </select>
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Overtime</label>
-                    <select
-                      value={masterFiltersDraft.overtimeFilter}
-                      onChange={(e) => setMasterFiltersDraft(prev => ({ ...prev, overtimeFilter: e.target.value as any }))}
-                      className="w-full py-4 px-6 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner appearance-none cursor-pointer"
-                    >
-                      <option value="All">All</option>
-                      <option value="Yes">Yes</option>
-                      <option value="No">No</option>
-                    </select>
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Sort</label>
-                    <select
-                      value={masterFiltersDraft.sortBy}
-                      onChange={(e) => setMasterFiltersDraft(prev => ({ ...prev, sortBy: e.target.value as any }))}
-                      className="w-full py-4 px-6 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner appearance-none cursor-pointer"
-                    >
-                      <option value="productivity">Worst Productivity First</option>
-                      <option value="break">Highest Break Time</option>
-                      <option value="ot">Highest Overtime</option>
-                      <option value="talk">Highest Talk Time</option>
-                      <option value="inbound">Highest Inbound</option>
-                      <option value="outbound">Highest Outbound</option>
-                    </select>
+                      {showMasterAdvancedFilters ? 'Hide Advanced Filters' : 'Advanced Filters'}
+                    </button>
                   </div>
                 </div>
-
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mr-2">Quick Dates</span>
-                  <button
-                    onClick={() => {
-                      const today = formatDateInput(new Date());
-                      const next = { ...masterFiltersDraft, dateStart: today, dateEnd: today, jumpDate: '' };
-                      setMasterFiltersDraft(next);
-                      applyMasterFilters(next);
-                    }}
-                    className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase hover:bg-indigo-50 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-                    type="button"
-                  >
-                    Today
-                  </button>
-                  <button
-                    onClick={() => {
-                      const next = { ...masterFiltersDraft, dateStart: '', dateEnd: '', jumpDate: '' };
-                      setMasterFiltersDraft(next);
-                      applyMasterFilters(next);
-                    }}
-                    className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase hover:bg-rose-50 hover:text-rose-600 dark:hover:text-rose-400 transition-colors"
-                    type="button"
-                  >
-                    Clear Dates
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                  <div>
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Login Min (min)</label>
-                    <input
-                      value={masterFiltersDraft.quickLoginMin}
-                      onChange={(e) => setMasterFiltersDraft(prev => ({ ...prev, quickLoginMin: e.target.value }))}
-                      className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner"
-                      placeholder="0"
-                    />
+                {showMasterAdvancedFilters && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Agent</label>
+                      <input
+                        type="text"
+                        value={masterFiltersDraft.agentFilter}
+                        onChange={(e) => setMasterFiltersDraft(prev => ({ ...prev, agentFilter: e.target.value }))}
+                        placeholder="Search agent name or ID"
+                        list="agent-list"
+                        className="w-full py-3 px-4 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner"
+                      />
+                      <datalist id="agent-list">
+                        {allUsers.map(u => (
+                          <option key={u.id} value={`${u.name} (${u.empId})`} />
+                        ))}
+                      </datalist>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-black text-slate-400 uppercase ml-2">From</label>
+                      <input
+                        type="date"
+                        value={masterFiltersDraft.dateStart}
+                        onChange={(e) => setMasterFiltersDraft(prev => ({ ...prev, dateStart: e.target.value }))}
+                        className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-black text-slate-400 uppercase ml-2">To</label>
+                      <input
+                        type="date"
+                        value={masterFiltersDraft.dateEnd}
+                        onChange={(e) => setMasterFiltersDraft(prev => ({ ...prev, dateEnd: e.target.value }))}
+                        className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Status</label>
+                      <select
+                        value={masterFiltersDraft.statusFilter}
+                        onChange={(e) => setMasterFiltersDraft(prev => ({ ...prev, statusFilter: e.target.value as any }))}
+                        className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner appearance-none cursor-pointer"
+                      >
+                        <option value="All">All</option>
+                        <option value="Approved">Green</option>
+                        <option value="Pending">Yellow</option>
+                        <option value="Rejected">Red</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Break Violation</label>
+                      <select
+                        value={masterFiltersDraft.breakViolationFilter}
+                        onChange={(e) => setMasterFiltersDraft(prev => ({ ...prev, breakViolationFilter: e.target.value as any }))}
+                        className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner appearance-none cursor-pointer"
+                      >
+                        <option value="All">All</option>
+                        <option value="Yes">Yes</option>
+                        <option value="No">No</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Overtime</label>
+                      <select
+                        value={masterFiltersDraft.overtimeFilter}
+                        onChange={(e) => setMasterFiltersDraft(prev => ({ ...prev, overtimeFilter: e.target.value as any }))}
+                        className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner appearance-none cursor-pointer"
+                      >
+                        <option value="All">All</option>
+                        <option value="Yes">Yes</option>
+                        <option value="No">No</option>
+                      </select>
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Break Min (min)</label>
-                    <input
-                      value={masterFiltersDraft.quickBreakMin}
-                      onChange={(e) => setMasterFiltersDraft(prev => ({ ...prev, quickBreakMin: e.target.value }))}
-                      className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner"
-                      placeholder="0"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Talk Min (min)</label>
-                    <input
-                      value={masterFiltersDraft.quickTalkMin}
-                      onChange={(e) => setMasterFiltersDraft(prev => ({ ...prev, quickTalkMin: e.target.value }))}
-                      className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner"
-                      placeholder="0"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Inbound Min</label>
-                    <input
-                      value={masterFiltersDraft.quickInboundMin}
-                      onChange={(e) => setMasterFiltersDraft(prev => ({ ...prev, quickInboundMin: e.target.value }))}
-                      className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner"
-                      placeholder="0"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Outbound Min</label>
-                    <input
-                      value={masterFiltersDraft.quickOutboundMin}
-                      onChange={(e) => setMasterFiltersDraft(prev => ({ ...prev, quickOutboundMin: e.target.value }))}
-                      className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner"
-                      placeholder="0"
-                    />
-                  </div>
-                </div>
+                )}
 
                 <div className="overflow-x-auto rounded-[2.5rem] border dark:border-slate-800">
                   <table className="w-full text-left text-[13px] min-w-[1300px]">
