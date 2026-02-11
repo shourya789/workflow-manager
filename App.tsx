@@ -489,7 +489,10 @@ export default function App() {
 
   const loginSec = timeToSeconds(formData.currentLogin);
   const shiftBase = shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
-  const otSec = loginSec > shiftBase ? (loginSec - shiftBase) : 0;
+  const otEligibilitySec = 4.5 * 3600;
+  const extraSec = Math.max(0, loginSec - shiftBase);
+  const otTrigger = loginSec >= otEligibilitySec && extraSec > 3600;
+  const otSec = otTrigger ? extraSec : 0;
 
   const loginRemainingSec = Math.max(0, shiftBase - loginSec);
   const totalBreakSec = timeToSeconds(formData.pause) + timeToSeconds(formData.dispo) + timeToSeconds(formData.dead);
@@ -536,6 +539,11 @@ export default function App() {
       }
     }
 
+    if (applyForOT && !formData.reason.trim()) {
+      pushToast('Please add a justification before requesting OT.', 'warning');
+      return;
+    }
+
     const targetUserId = adminViewingUserId || user.id;
     const calculatedStatus: EntryStatus = (applyForOT) ? 'Pending' : 'N/A';
 
@@ -574,7 +582,7 @@ export default function App() {
   };
 
   const saveToHistory = () => {
-    if (otSec > 0 && !showOTModal) {
+    if (otTrigger && !showOTModal) {
       setShowOTModal(true);
       return;
     }
@@ -722,7 +730,13 @@ export default function App() {
   }, [masterDataServer, user]);
 
   const otEntries = useMemo(() => {
-    return masterData.filter(d => timeToSeconds(d.currentLogin) > (d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600) && (d.status === 'Approved'));
+    const eligibilitySec = 4.5 * 3600;
+    return masterData.filter(d => {
+      const loginSec = timeToSeconds(d.currentLogin || '00:00:00');
+      const shiftTarget = d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+      const extra = loginSec - shiftTarget;
+      return loginSec >= eligibilitySec && extra > 3600 && d.status === 'Approved';
+    });
   }, [masterData]);
 
   const filteredOtEntries = useMemo(() => {
@@ -736,10 +750,12 @@ export default function App() {
   }, [otEntries, otAdminSearchQuery]);
 
   const otApprovalEntries = useMemo(() => {
+    const eligibilitySec = 4.5 * 3600;
     return masterData.filter(d => {
       const loginSec = timeToSeconds(d.currentLogin || '00:00:00');
       const shiftBase = d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
-      return loginSec > shiftBase && d.status === 'Pending';
+      const extra = loginSec - shiftBase;
+      return loginSec >= eligibilitySec && extra > 3600 && d.status === 'Pending';
     });
   }, [masterData]);
 
@@ -865,7 +881,7 @@ export default function App() {
       return breakOk && loginOk && activityOk;
     });
 
-    const pendingOt = derived.filter(item => item.loginSec > item.shiftBase && item.entry.status === 'Pending');
+    const pendingOt = derived.filter(item => item.loginSec >= 4.5 * 3600 && (item.loginSec - item.shiftBase) > 3600 && item.entry.status === 'Pending');
 
     const uniqueUsers = (items: typeof derived) => new Set(items.map(i => i.entry.userId)).size;
     const breakExceededUsers = new Set(derived.filter(item => item.breakSec > 2 * 3600).map(item => item.entry.userId)).size;
@@ -1212,7 +1228,13 @@ export default function App() {
   const detailsTotalPages = useMemo(() => Math.ceil(filteredDetailsEntries.length / detailsPageSize), [filteredDetailsEntries.length, detailsPageSize]);
 
   const otLogEntries = useMemo(() => {
-    return entries.filter(e => timeToSeconds(e.currentLogin) > (e.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600));
+    const eligibilitySec = 4.5 * 3600;
+    return entries.filter(e => {
+      const loginSec = timeToSeconds(e.currentLogin || '00:00:00');
+      const shiftTarget = e.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+      const extra = loginSec - shiftTarget;
+      return loginSec >= eligibilitySec && extra > 3600;
+    });
   }, [entries]);
 
   if (!user) {
@@ -1577,7 +1599,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  {loginExceeded && (
+                  {otTrigger && (
                     <div className="p-3 bg-rose-500/10 rounded-xl border border-rose-500/20 text-center animate-pulse">
                       <div className="text-[8px] font-black text-rose-600 uppercase tracking-widest flex items-center justify-center gap-2">
                         <ZapIcon size={12} /> Overtime Detected: {secondsToTime(otSec)}
