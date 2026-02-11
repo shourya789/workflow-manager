@@ -107,6 +107,18 @@ export default function App() {
   const [masterShiftFilter, setMasterShiftFilter] = useState<'All' | ShiftType>('All');
   const [masterDateStart, setMasterDateStart] = useState('');
   const [masterDateEnd, setMasterDateEnd] = useState('');
+  const [masterAgentFilter, setMasterAgentFilter] = useState('');
+  const [masterBreakViolationFilter, setMasterBreakViolationFilter] = useState<'All' | 'Yes' | 'No'>('All');
+  const [masterOvertimeFilter, setMasterOvertimeFilter] = useState<'All' | 'Yes' | 'No'>('All');
+  const [masterSortBy, setMasterSortBy] = useState<'productivity' | 'break' | 'ot' | 'inbound' | 'outbound' | 'talk'>('productivity');
+  const [masterJumpDate, setMasterJumpDate] = useState('');
+  const [masterQuickLoginMin, setMasterQuickLoginMin] = useState('');
+  const [masterQuickBreakMin, setMasterQuickBreakMin] = useState('');
+  const [masterQuickTalkMin, setMasterQuickTalkMin] = useState('');
+  const [masterQuickInboundMin, setMasterQuickInboundMin] = useState('');
+  const [masterQuickOutboundMin, setMasterQuickOutboundMin] = useState('');
+  const [drillUserId, setDrillUserId] = useState<string | null>(null);
+  const [showMasterAdvancedFilters, setShowMasterAdvancedFilters] = useState(false);
   const [showPasswords, setShowPasswords] = useState(false);
   const [masterDataServer, setMasterDataServer] = useState<TimeData[]>([]);
   const [migrations, setMigrations] = useState<any[]>([]);
@@ -615,6 +627,19 @@ export default function App() {
 
   const formatDateInput = (date: Date) => date.toISOString().split('T')[0];
 
+  const computeEntryScore = (entry: TimeData) => {
+    const talkSec = timeToSeconds(entry.talk || '00:00:00');
+    const customerTalkSec = timeToSeconds(entry.customerTalk || '00:00:00');
+    const inbound = entry.inbound || 0;
+    const outbound = entry.outbound || 0;
+    const breakSec = timeToSeconds(entry.pause || '00:00:00') + timeToSeconds(entry.dispo || '00:00:00') + timeToSeconds(entry.dead || '00:00:00');
+    const breakLimit = entry.shiftType === 'Full Day' ? 7200 : 2700;
+    const breakPenalty = breakSec > breakLimit ? 10 : 0;
+    const volume = inbound + outbound;
+    const score = (talkSec / 60) * 0.4 + (volume * 0.3) + (customerTalkSec / 60) * 0.2 - breakPenalty;
+    return Math.max(0, score);
+  };
+
   const masterData = useMemo(() => {
     if (user?.role !== 'admin') return [];
     return masterDataServer;
@@ -622,14 +647,47 @@ export default function App() {
 
   const filteredMasterData = useMemo(() => {
     let result = masterData;
-    
-    if (masterSearchQuery || masterStatusFilter !== 'All' || masterShiftFilter !== 'All' || masterDateStart || masterDateEnd) {
-      const q = masterSearchQuery.toLowerCase();
-      result = masterData.filter(d => {
-        const matchesSearch = !masterSearchQuery || d.userName.toLowerCase().includes(q) ||
-          d.userId.toLowerCase().includes(q) ||
-          new Date(d.date).toLocaleDateString('en-GB').includes(q);
 
+    const queryTokens = masterSearchQuery
+      .toLowerCase()
+      .split(/\s+/)
+      .map(t => t.trim())
+      .filter(Boolean);
+    const dateToken = queryTokens.find(t => /^\d{4}-\d{2}-\d{2}$/.test(t));
+    const keywordTokens = queryTokens.filter(t => t !== dateToken);
+
+    if (
+      masterSearchQuery ||
+      masterStatusFilter !== 'All' ||
+      masterShiftFilter !== 'All' ||
+      masterDateStart ||
+      masterDateEnd ||
+      masterAgentFilter ||
+      masterBreakViolationFilter !== 'All' ||
+      masterOvertimeFilter !== 'All' ||
+      masterQuickLoginMin ||
+      masterQuickBreakMin ||
+      masterQuickTalkMin ||
+      masterQuickInboundMin ||
+      masterQuickOutboundMin
+    ) {
+      result = masterData.filter(d => {
+        const lowerName = (d.userName || '').toLowerCase();
+        const lowerId = (d.userId || '').toLowerCase();
+        const lowerReason = (d.reason || '').toLowerCase();
+        const entryDate = formatDateInput(new Date(d.date));
+        const matchesSmartDate = dateToken ? entryDate === dateToken : true;
+        const matchesSmartTokens = keywordTokens.length
+          ? keywordTokens.every(t =>
+              lowerName.includes(t) ||
+              lowerId.includes(t) ||
+              lowerReason.includes(t) ||
+              d.status.toLowerCase().includes(t) ||
+              d.shiftType.toLowerCase().includes(t)
+            )
+          : true;
+
+        const matchesSearch = !masterSearchQuery || (matchesSmartDate && matchesSmartTokens);
         const matchesStatus = masterStatusFilter === 'All' ? true : d.status === masterStatusFilter;
         const matchesShift = masterShiftFilter === 'All' ? true : d.shiftType === masterShiftFilter;
 
@@ -645,12 +703,98 @@ export default function App() {
           matchesDate = matchesDate && new Date(d.date) <= end;
         }
 
-        return matchesSearch && matchesStatus && matchesShift && matchesDate;
+        const agentFilterRaw = masterAgentFilter.trim();
+        const agentFilterLower = agentFilterRaw.toLowerCase();
+        const agentIdToken = (agentFilterRaw.match(/\(([^)]+)\)/)?.[1] || '').trim().toLowerCase();
+        const agentNameToken = agentFilterRaw.replace(/\([^)]*\)/g, '').trim().toLowerCase();
+        const matchesAgent = agentFilterRaw
+          ? (
+              (agentNameToken && lowerName.includes(agentNameToken)) ||
+              (agentIdToken && lowerId.includes(agentIdToken)) ||
+              lowerName.includes(agentFilterLower) ||
+              lowerId.includes(agentFilterLower)
+            )
+          : true;
+
+        const breakSec = timeToSeconds(d.pause || '00:00:00') + timeToSeconds(d.dispo || '00:00:00') + timeToSeconds(d.dead || '00:00:00');
+        const breakLimit = d.shiftType === 'Full Day' ? 7200 : 2700;
+        const isBreakExceeded = breakSec > breakLimit;
+        const matchesBreakViolation = masterBreakViolationFilter === 'All'
+          ? true
+          : masterBreakViolationFilter === 'Yes'
+            ? isBreakExceeded
+            : !isBreakExceeded;
+
+        const loginSec = timeToSeconds(d.currentLogin || '00:00:00');
+        const shiftBase = d.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+        const isOvertime = loginSec > shiftBase;
+        const matchesOvertime = masterOvertimeFilter === 'All'
+          ? true
+          : masterOvertimeFilter === 'Yes'
+            ? isOvertime
+            : !isOvertime;
+
+        const matchesQuickLogin = masterQuickLoginMin ? loginSec >= Number(masterQuickLoginMin) * 60 : true;
+        const matchesQuickBreak = masterQuickBreakMin ? breakSec >= Number(masterQuickBreakMin) * 60 : true;
+        const matchesQuickTalk = masterQuickTalkMin ? timeToSeconds(d.talk || '00:00:00') >= Number(masterQuickTalkMin) * 60 : true;
+        const matchesQuickInbound = masterQuickInboundMin ? (d.inbound || 0) >= Number(masterQuickInboundMin) : true;
+        const matchesQuickOutbound = masterQuickOutboundMin ? (d.outbound || 0) >= Number(masterQuickOutboundMin) : true;
+
+        return (
+          matchesSearch &&
+          matchesStatus &&
+          matchesShift &&
+          matchesDate &&
+          matchesAgent &&
+          matchesBreakViolation &&
+          matchesOvertime &&
+          matchesQuickLogin &&
+          matchesQuickBreak &&
+          matchesQuickTalk &&
+          matchesQuickInbound &&
+          matchesQuickOutbound
+        );
       });
     }
-    
-    return result;
-  }, [masterData, masterSearchQuery, masterStatusFilter, masterShiftFilter, masterDateStart, masterDateEnd]);
+
+    const sorted = [...result];
+    sorted.sort((a, b) => {
+      if (masterSortBy === 'break') {
+        const aBreak = timeToSeconds(a.pause || '00:00:00') + timeToSeconds(a.dispo || '00:00:00') + timeToSeconds(a.dead || '00:00:00');
+        const bBreak = timeToSeconds(b.pause || '00:00:00') + timeToSeconds(b.dispo || '00:00:00') + timeToSeconds(b.dead || '00:00:00');
+        return bBreak - aBreak;
+      }
+      if (masterSortBy === 'ot') {
+        const aLogin = timeToSeconds(a.currentLogin || '00:00:00');
+        const bLogin = timeToSeconds(b.currentLogin || '00:00:00');
+        const aBase = a.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+        const bBase = b.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+        return (bLogin - bBase) - (aLogin - aBase);
+      }
+      if (masterSortBy === 'inbound') return (b.inbound || 0) - (a.inbound || 0);
+      if (masterSortBy === 'outbound') return (b.outbound || 0) - (a.outbound || 0);
+      if (masterSortBy === 'talk') return timeToSeconds(b.talk || '00:00:00') - timeToSeconds(a.talk || '00:00:00');
+      return computeEntryScore(a) - computeEntryScore(b);
+    });
+
+    return sorted;
+  }, [
+    masterData,
+    masterSearchQuery,
+    masterStatusFilter,
+    masterShiftFilter,
+    masterDateStart,
+    masterDateEnd,
+    masterAgentFilter,
+    masterBreakViolationFilter,
+    masterOvertimeFilter,
+    masterQuickLoginMin,
+    masterQuickBreakMin,
+    masterQuickTalkMin,
+    masterQuickInboundMin,
+    masterQuickOutboundMin,
+    masterSortBy
+  ]);
 
   // Paginated master data (client-side pagination for performance)
   const paginatedMasterData = useMemo(() => {
@@ -814,14 +958,71 @@ export default function App() {
     };
   }, [masterDataServer, user]);
 
+  const drillEntries = useMemo(() => {
+    if (!drillUserId) return [] as TimeData[];
+    return [...(masterDataServer || [])]
+      .filter(e => e.userId === drillUserId)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 6);
+  }, [drillUserId, masterDataServer]);
+
+  const drillSummary = useMemo(() => {
+    if (!drillUserId) return null;
+    const all = (masterDataServer || []).filter(e => e.userId === drillUserId);
+    let breakViolations = 0;
+    let otCount = 0;
+    let latest = 0;
+    for (const entry of all) {
+      const loginSec = timeToSeconds(entry.currentLogin || '00:00:00');
+      const shiftBase = entry.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+      const breakSec = timeToSeconds(entry.pause || '00:00:00') + timeToSeconds(entry.dispo || '00:00:00') + timeToSeconds(entry.dead || '00:00:00');
+      const breakLimit = entry.shiftType === 'Full Day' ? 7200 : 2700;
+      if (breakSec > breakLimit) breakViolations += 1;
+      if (loginSec > shiftBase) otCount += 1;
+      const entryTime = new Date(entry.date).getTime();
+      if (entryTime > latest) latest = entryTime;
+    }
+    return {
+      total: all.length,
+      breakViolations,
+      otCount,
+      latestDate: latest ? new Date(latest).toLocaleDateString() : 'N/A'
+    };
+  }, [drillUserId, masterDataServer]);
+
   useEffect(() => {
     if (user?.role === 'admin') { fetchMasterData(); fetchMigrations(); }
   }, [user, allUsers]);
 
+  useEffect(() => {
+    if (user?.role === 'admin') {
+      const today = formatDateInput(new Date());
+      setMasterDateStart(today);
+      setMasterDateEnd(today);
+      setMasterSortBy('productivity');
+    }
+  }, [user]);
+
   // Reset to page 1 when filters change (better UX)
   useEffect(() => {
     setMasterCurrentPage(1);
-  }, [masterSearchQuery, masterStatusFilter, masterShiftFilter, masterDateStart, masterDateEnd]);
+  }, [
+    masterSearchQuery,
+    masterStatusFilter,
+    masterShiftFilter,
+    masterDateStart,
+    masterDateEnd,
+    masterAgentFilter,
+    masterBreakViolationFilter,
+    masterOvertimeFilter,
+    masterQuickLoginMin,
+    masterQuickBreakMin,
+    masterQuickTalkMin,
+    masterQuickInboundMin,
+    masterQuickOutboundMin,
+    masterSortBy,
+    masterJumpDate
+  ]);
 
   useEffect(() => {
     setDetailsCurrentPage(1);
@@ -1501,6 +1702,56 @@ export default function App() {
                   <button onClick={() => setShowPasswords(p => !p)} className="bg-slate-200 dark:bg-slate-800 px-4 py-3 rounded-xl text-[10px] font-black uppercase">{showPasswords ? 'Hide Passwords' : 'Show Passwords'}</button>
                 </div>
               </div>
+
+              <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border dark:border-slate-800 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Admin Quick Actions</p>
+                    <p className="text-[9px] font-bold text-slate-400 mt-1">Jump straight to daily review tasks</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => { setActiveTab('all-logs'); }}
+                      className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase"
+                    >
+                      Open Master Stream
+                    </button>
+                    <button
+                      onClick={() => {
+                        setMasterBreakViolationFilter('Yes');
+                        setMasterOvertimeFilter('All');
+                        setMasterStatusFilter('All');
+                        setActiveTab('all-logs');
+                      }}
+                      className="px-4 py-2 rounded-2xl bg-rose-50 text-rose-600 text-[9px] font-black uppercase"
+                    >
+                      Review Break Violations
+                    </button>
+                    <button
+                      onClick={() => {
+                        setMasterOvertimeFilter('Yes');
+                        setMasterBreakViolationFilter('All');
+                        setMasterStatusFilter('All');
+                        setActiveTab('all-logs');
+                      }}
+                      className="px-4 py-2 rounded-2xl bg-amber-50 text-amber-600 text-[9px] font-black uppercase"
+                    >
+                      Review Overtime
+                    </button>
+                    <button
+                      onClick={() => {
+                        const today = formatDateInput(new Date());
+                        const daily = masterDataServer.filter(e => formatDateInput(new Date(e.date)) === today);
+                        exportDailyPerformanceReport(daily);
+                      }}
+                      className="px-4 py-2 rounded-2xl bg-indigo-600 text-white text-[9px] font-black uppercase"
+                    >
+                      Download Today CSV
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               <div className="dashboard bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-sm border dark:border-slate-800">
                 <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-6">
                   <div>
@@ -1802,60 +2053,237 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border dark:border-slate-800 shadow-sm space-y-6">
-                <div className="flex flex-col md:flex-row gap-4">
-                  <div className="relative group flex-1 md:flex-[2]">
-                    <SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={18} />
-                    <input type="text" placeholder="Global master filter: Agent name, ID, or Session date..." value={masterSearchQuery} onChange={(e) => setMasterSearchQuery(e.target.value)} className="w-full py-5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none pl-14 pr-8 text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner" />
+              <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border dark:border-slate-800 shadow-sm">
+                <div className="flex flex-col md:flex-row md:items-center gap-4">
+                  <div className="relative group flex-1">
+                    <SearchIcon className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={16} />
+                    <input
+                      type="text"
+                      placeholder="Smart search: Agent, 2026-02-04, keyword in reason"
+                      value={masterSearchQuery}
+                      onChange={(e) => setMasterSearchQuery(e.target.value)}
+                      className="w-full py-4 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none pl-12 pr-6 text-xs font-bold border border-transparent focus:border-indigo-500/20 dark:text-white transition-all shadow-inner"
+                    />
                   </div>
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">From</label>
-                    <input type="date" value={masterDateStart} onChange={(e) => setMasterDateStart(e.target.value)} className="w-full p-3.5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold dark:text-white shadow-inner" />
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">To</label>
-                    <input type="date" value={masterDateEnd} onChange={(e) => setMasterDateEnd(e.target.value)} className="w-full p-3.5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold dark:text-white shadow-inner" />
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Status</label>
-                    <select value={masterStatusFilter} onChange={(e) => setMasterStatusFilter(e.target.value as any)} className="w-full py-4 px-6 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner appearance-none cursor-pointer">
-                      <option value="All">All Statuses</option>
-                      <option value="Approved">Approved</option>
-                      <option value="Pending">Pending</option>
-                      <option value="Rejected">Rejected</option>
-                      <option value="N/A">N/A</option>
-                    </select>
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Shift</label>
-                    <select value={masterShiftFilter} onChange={(e) => setMasterShiftFilter(e.target.value as any)} className="w-full py-4 px-6 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner appearance-none cursor-pointer">
-                      <option value="All">All Shifts</option>
-                      <option value="Full Day">Full Day</option>
-                      <option value="Half Day">Half Day</option>
-                    </select>
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mr-2">Quick Dates</span>
                   <button
                     onClick={() => {
-                      const today = formatDateInput(new Date());
-                      setMasterDateStart(today);
-                      setMasterDateEnd(today);
+                      setMasterSearchQuery('');
+                      setMasterAgentFilter('');
+                      setMasterStatusFilter('All');
+                      setMasterShiftFilter('All');
+                      setMasterBreakViolationFilter('All');
+                      setMasterOvertimeFilter('All');
+                      setMasterJumpDate('');
+                      setMasterQuickLoginMin('');
+                      setMasterQuickBreakMin('');
+                      setMasterQuickTalkMin('');
+                      setMasterQuickInboundMin('');
+                      setMasterQuickOutboundMin('');
                     }}
-                    className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase hover:bg-indigo-50 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-                    type="button"
+                    className="px-5 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[10px] font-black uppercase"
                   >
-                    Today
+                    Clear Filters
                   </button>
                   <button
-                    onClick={() => { setMasterDateStart(''); setMasterDateEnd(''); }}
-                    className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase hover:bg-rose-50 hover:text-rose-600 dark:hover:text-rose-400 transition-colors"
-                    type="button"
+                    onClick={() => exportDailyPerformanceReport(filteredMasterData)}
+                    className="px-5 py-3 rounded-2xl bg-indigo-600 text-white text-[10px] font-black uppercase"
                   >
-                    Clear Dates
+                    Export Current View (CSV)
                   </button>
                 </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border dark:border-slate-800 shadow-sm space-y-6">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Quick Views</span>
+                    <button
+                      onClick={() => {
+                        const today = formatDateInput(new Date());
+                        setMasterDateStart(today);
+                        setMasterDateEnd(today);
+                      }}
+                      className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase"
+                      type="button"
+                    >
+                      Today
+                    </button>
+                    <button
+                      onClick={() => {
+                        setMasterSortBy('productivity');
+                        setMasterBreakViolationFilter('All');
+                        setMasterOvertimeFilter('All');
+                        setMasterStatusFilter('All');
+                        setMasterQuickTalkMin('');
+                      }}
+                      className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase"
+                      type="button"
+                    >
+                      Low Performers
+                    </button>
+                    <button
+                      onClick={() => {
+                        setMasterBreakViolationFilter('Yes');
+                        setMasterOvertimeFilter('All');
+                      }}
+                      className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase"
+                      type="button"
+                    >
+                      Break Violations
+                    </button>
+                    <button
+                      onClick={() => {
+                        setMasterOvertimeFilter('Yes');
+                      }}
+                      className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase"
+                      type="button"
+                    >
+                      Overtime Review
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowMasterAdvancedFilters(v => !v)}
+                      className="px-4 py-2 rounded-2xl bg-indigo-600 text-white text-[9px] font-black uppercase"
+                      type="button"
+                    >
+                      {showMasterAdvancedFilters ? 'Hide Advanced Filters' : 'Show Advanced Filters'}
+                    </button>
+                  </div>
+                </div>
+                {showMasterAdvancedFilters && (
+                  <>
+                    <div className="flex flex-col md:flex-row gap-4">
+                      <div className="flex-1 md:flex-[2] space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Agent</label>
+                        <input
+                          type="text"
+                          value={masterAgentFilter}
+                          onChange={(e) => setMasterAgentFilter(e.target.value)}
+                          placeholder="Search agent name or ID"
+                          list="agent-list"
+                          className="w-full py-4 px-6 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner"
+                        />
+                        <datalist id="agent-list">
+                          {allUsers.map(u => (
+                            <option key={u.id} value={`${u.name} (${u.empId})`} />
+                          ))}
+                        </datalist>
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-2">From</label>
+                        <input type="date" value={masterDateStart} onChange={(e) => setMasterDateStart(e.target.value)} className="w-full p-3.5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold dark:text-white shadow-inner" />
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-2">To</label>
+                        <input type="date" value={masterDateEnd} onChange={(e) => setMasterDateEnd(e.target.value)} className="w-full p-3.5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold dark:text-white shadow-inner" />
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Jump Date</label>
+                        <input
+                          type="date"
+                          value={masterJumpDate}
+                          onChange={(e) => {
+                            setMasterJumpDate(e.target.value);
+                            setMasterDateStart(e.target.value);
+                            setMasterDateEnd(e.target.value);
+                          }}
+                          className="w-full p-3.5 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold dark:text-white shadow-inner"
+                        />
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Status</label>
+                        <select value={masterStatusFilter} onChange={(e) => setMasterStatusFilter(e.target.value as any)} className="w-full py-4 px-6 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner appearance-none cursor-pointer">
+                          <option value="All">All Statuses</option>
+                          <option value="Approved">Approved</option>
+                          <option value="Pending">Pending</option>
+                          <option value="Rejected">Rejected</option>
+                          <option value="N/A">N/A</option>
+                        </select>
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Shift</label>
+                        <select value={masterShiftFilter} onChange={(e) => setMasterShiftFilter(e.target.value as any)} className="w-full py-4 px-6 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner appearance-none cursor-pointer">
+                          <option value="All">All Shifts</option>
+                          <option value="Full Day">Full Day</option>
+                          <option value="Half Day">Half Day</option>
+                        </select>
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Break Violation</label>
+                        <select value={masterBreakViolationFilter} onChange={(e) => setMasterBreakViolationFilter(e.target.value as any)} className="w-full py-4 px-6 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner appearance-none cursor-pointer">
+                          <option value="All">All</option>
+                          <option value="Yes">Yes</option>
+                          <option value="No">No</option>
+                        </select>
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Overtime</label>
+                        <select value={masterOvertimeFilter} onChange={(e) => setMasterOvertimeFilter(e.target.value as any)} className="w-full py-4 px-6 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner appearance-none cursor-pointer">
+                          <option value="All">All</option>
+                          <option value="Yes">Yes</option>
+                          <option value="No">No</option>
+                        </select>
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Sort</label>
+                        <select value={masterSortBy} onChange={(e) => setMasterSortBy(e.target.value as any)} className="w-full py-4 px-6 bg-slate-50 dark:bg-slate-950 rounded-3xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner appearance-none cursor-pointer">
+                          <option value="productivity">Worst Productivity First</option>
+                          <option value="break">Highest Break Time</option>
+                          <option value="ot">Highest Overtime</option>
+                          <option value="talk">Highest Talk Time</option>
+                          <option value="inbound">Highest Inbound</option>
+                          <option value="outbound">Highest Outbound</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mr-2">Quick Dates</span>
+                      <button
+                        onClick={() => {
+                          const today = formatDateInput(new Date());
+                          setMasterDateStart(today);
+                          setMasterDateEnd(today);
+                        }}
+                        className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase hover:bg-indigo-50 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                        type="button"
+                      >
+                        Today
+                      </button>
+                      <button
+                        onClick={() => { setMasterDateStart(''); setMasterDateEnd(''); }}
+                        className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase hover:bg-rose-50 hover:text-rose-600 dark:hover:text-rose-400 transition-colors"
+                        type="button"
+                      >
+                        Clear Dates
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                      <div>
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Login Min (min)</label>
+                        <input value={masterQuickLoginMin} onChange={(e) => setMasterQuickLoginMin(e.target.value)} className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner" placeholder="0" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Break Min (min)</label>
+                        <input value={masterQuickBreakMin} onChange={(e) => setMasterQuickBreakMin(e.target.value)} className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner" placeholder="0" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Talk Min (min)</label>
+                        <input value={masterQuickTalkMin} onChange={(e) => setMasterQuickTalkMin(e.target.value)} className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner" placeholder="0" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Inbound Min</label>
+                        <input value={masterQuickInboundMin} onChange={(e) => setMasterQuickInboundMin(e.target.value)} className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner" placeholder="0" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Outbound Min</label>
+                        <input value={masterQuickOutboundMin} onChange={(e) => setMasterQuickOutboundMin(e.target.value)} className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner" placeholder="0" />
+                      </div>
+                    </div>
+                  </>
+                )}
 
                 <div className="overflow-x-auto rounded-[2.5rem] border dark:border-slate-800">
                   <table className="w-full text-left text-[13px] min-w-[1300px]">
@@ -1884,13 +2312,27 @@ export default function App() {
                         const tBrk = timeToSeconds(log.pause) + timeToSeconds(log.dispo) + timeToSeconds(log.dead);
                         const bLimit = log.shiftType === 'Full Day' ? 7200 : 2700;
                         const bExceed = tBrk > bLimit;
+                        const isOvertime = lSec > sBase;
+                        const isRejected = log.status === 'Rejected';
+                        const isPending = log.status === 'Pending';
+                        const rowClass = bExceed || isOvertime || isRejected
+                          ? 'bg-rose-50/60 dark:bg-rose-950/20'
+                          : isPending
+                            ? 'bg-amber-50/60 dark:bg-amber-950/20'
+                            : '';
 
                         return (
-                          <tr key={log.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
+                          <tr key={log.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors ${rowClass}`}>
                             <td className="px-4 py-5">
                               <div className="flex items-center gap-4">
                                 <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-black text-xs shadow-sm">{log.userName?.charAt(0)}</div>
-                                <div><div className="font-black dark:text-slate-200 uppercase">{log.userName}</div><div className="text-[11px] font-mono text-slate-400 mt-0.5 uppercase">{log.userId}</div></div>
+                                <button
+                                  onClick={() => setDrillUserId(log.userId)}
+                                  className="text-left"
+                                >
+                                  <div className="font-black dark:text-slate-200 uppercase">{log.userName}</div>
+                                  <div className="text-[11px] font-mono text-slate-400 mt-0.5 uppercase">{log.userId}</div>
+                                </button>
                               </div>
                             </td>
                             <td className="px-4 py-5">
@@ -1903,14 +2345,15 @@ export default function App() {
                             <td className="px-4 py-5 font-mono dark:text-slate-400">{log.pause}</td>
                             <td className="px-4 py-5 font-mono dark:text-slate-400">{log.dispo}</td>
                             <td className="px-4 py-5 font-mono dark:text-slate-400">{log.dead}</td>
-                            <td className={`px-4 py-5 font-mono font-black ${bExceed ? 'text-rose-500' : 'text-emerald-500'}`}>{secondsToTime(tBrk)}</td>
+                            <td className={`px-4 py-5 font-mono font-black ${bExceed ? 'text-rose-600' : 'text-emerald-600'}`}>{secondsToTime(tBrk)}</td>
                             <td className="px-4 py-5 text-center font-black dark:text-slate-200">{log.inbound}</td>
                             <td className="px-4 py-5 text-center font-black dark:text-slate-200">{log.outbound }</td>
                             <td className="px-4 py-5 text-sm text-slate-600">{log.reason ? (log.reason.length > 80 ? log.reason.slice(0, 77) + '...' : log.reason) : '-'}</td>
                             <td className="px-4 py-5 text-center">
                               <div className="flex flex-col items-center gap-2">
                                 <StatusBadge status={log.status} />
-                                {lSec > sBase && <span className="text-[10px] font-black text-amber-600 uppercase">OT: {secondsToTime(lSec - sBase)}</span>}
+                                {bExceed && <span className="text-[10px] font-black text-rose-600 uppercase">Break Violation</span>}
+                                {isOvertime && <span className="text-[10px] font-black text-amber-600 uppercase">OT: {secondsToTime(lSec - sBase)}</span>}
                               </div>
                             </td>
                             <td className="px-4 py-5 text-right">
@@ -1946,6 +2389,82 @@ export default function App() {
                   </div>
                 )}
               </div>
+
+              {drillUserId && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4" onClick={() => setDrillUserId(null)}>
+                  <div className="w-full max-w-3xl bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-200 dark:border-slate-800 shadow-2xl p-6" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="text-lg font-black uppercase dark:text-white">{drillEntries[0]?.userName || 'Agent Drilldown'}</h3>
+                        <p className="text-[10px] font-mono text-slate-400 uppercase mt-1">{drillUserId}</p>
+                      </div>
+                      <button onClick={() => setDrillUserId(null)} className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-[10px] font-black uppercase">Close</button>
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5">
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950">
+                        <div className="text-[9px] font-black uppercase text-slate-400">Entries</div>
+                        <div className="text-lg font-black text-indigo-600 mt-1">{drillSummary?.total || 0}</div>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950">
+                        <div className="text-[9px] font-black uppercase text-slate-400">Break Flags</div>
+                        <div className="text-lg font-black text-rose-600 mt-1">{drillSummary?.breakViolations || 0}</div>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950">
+                        <div className="text-[9px] font-black uppercase text-slate-400">OT Flags</div>
+                        <div className="text-lg font-black text-amber-600 mt-1">{drillSummary?.otCount || 0}</div>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950">
+                        <div className="text-[9px] font-black uppercase text-slate-400">Latest</div>
+                        <div className="text-sm font-black text-slate-600 dark:text-slate-300 mt-2">{drillSummary?.latestDate || 'N/A'}</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-6">
+                      <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Recent Sessions</h4>
+                      <div className="space-y-2">
+                        {drillEntries.length === 0 && (
+                          <div className="text-xs text-slate-400 uppercase">No entries found.</div>
+                        )}
+                        {drillEntries.map(entry => {
+                          const loginSec = timeToSeconds(entry.currentLogin || '00:00:00');
+                          const shiftBase = entry.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
+                          const breakSec = timeToSeconds(entry.pause || '00:00:00') + timeToSeconds(entry.dispo || '00:00:00') + timeToSeconds(entry.dead || '00:00:00');
+                          const breakLimit = entry.shiftType === 'Full Day' ? 7200 : 2700;
+                          const bExceed = breakSec > breakLimit;
+                          const isOvertime = loginSec > shiftBase;
+                          return (
+                            <div key={entry.id} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-950">
+                              <div>
+                                <div className="text-sm font-black dark:text-slate-200">{new Date(entry.date).toLocaleDateString()}</div>
+                                <div className="text-[10px] font-bold uppercase text-slate-400">{entry.shiftType} - Login {entry.currentLogin}</div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                {bExceed && <span className="text-[10px] font-black text-rose-600 uppercase">Break</span>}
+                                {isOvertime && <span className="text-[10px] font-black text-amber-600 uppercase">OT</span>}
+                                <StatusBadge status={entry.status} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end gap-2 mt-6">
+                      <button
+                        onClick={() => {
+                          const target = allUsers.find(u => u.empId.toLowerCase() === drillUserId.toLowerCase());
+                          if (target) { setAdminViewingUserId(target.id); setActiveTab('details'); }
+                          setDrillUserId(null);
+                        }}
+                        className="px-4 py-3 rounded-2xl bg-indigo-600 text-white text-[10px] font-black uppercase"
+                      >
+                        Open Details
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
