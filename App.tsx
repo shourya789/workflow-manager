@@ -179,7 +179,9 @@ export default function App() {
   const [overviewRange, setOverviewRange] = useState<'today' | 'weekly' | 'monthly' | 'yearly' | 'custom'>('today');
   const [overviewCustomStart, setOverviewCustomStart] = useState('');
   const [overviewCustomEnd, setOverviewCustomEnd] = useState('');
-  const [userKpiRange, setUserKpiRange] = useState<'daily' | 'weekly' | 'monthly' | 'yearly'>('weekly');
+  const [userKpiRange, setUserKpiRange] = useState<'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom'>('weekly');
+  const [userKpiCustomStart, setUserKpiCustomStart] = useState('');
+  const [userKpiCustomEnd, setUserKpiCustomEnd] = useState('');
   const [showPasswords, setShowPasswords] = useState(false);
   const [masterDataServer, setMasterDataServer] = useState<TimeData[]>([]);
   const [migrations, setMigrations] = useState<any[]>([]);
@@ -1038,13 +1040,20 @@ export default function App() {
       start.setHours(0, 0, 0, 0);
       return { start, end };
     }
+    if (userKpiRange === 'custom') {
+      const customStart = userKpiCustomStart ? new Date(userKpiCustomStart) : new Date(end);
+      const customEnd = userKpiCustomEnd ? new Date(userKpiCustomEnd) : new Date(end);
+      customStart.setHours(0, 0, 0, 0);
+      customEnd.setHours(23, 59, 59, 999);
+      return { start: customStart, end: customEnd };
+    }
     start.setMonth(0, 1);
     start.setHours(0, 0, 0, 0);
     return { start, end };
   };
 
   const overviewRangeBounds = useMemo(getOverviewBounds, [overviewCustomEnd, overviewCustomStart, overviewRange]);
-  const userKpiRangeBounds = useMemo(getUserKpiBounds, [userKpiRange]);
+  const userKpiRangeBounds = useMemo(getUserKpiBounds, [userKpiRange, userKpiCustomEnd, userKpiCustomStart]);
 
   const overviewEntries = useMemo(() => {
     if (user?.role !== 'admin') return [] as TimeData[];
@@ -2239,7 +2248,7 @@ export default function App() {
           {adminViewingUserId && (
             <div className="flex items-center justify-between bg-amber-500/5 border border-amber-500/10 p-4 rounded-2xl">
               <div className="flex items-center gap-4">
-                <button onClick={() => setAdminViewingUserId(null)} className="p-2 bg-white dark:bg-slate-900 rounded-xl text-amber-600"><ArrowLeftIcon size={18} /></button>
+                <button onClick={() => { setAdminViewingUserId(null); setActiveTab('admin'); }} className="p-2 bg-white dark:bg-slate-900 rounded-xl text-amber-600"><ArrowLeftIcon size={18} /></button>
                 <div><h3 className="text-sm font-black dark:text-white uppercase">{viewingUser?.name}</h3><p className="text-[9px] text-amber-600 uppercase font-black">{viewingUser?.empId}</p></div>
               </div>
               <ShieldAlertIcon className="text-amber-600" size={18} />
@@ -2516,8 +2525,22 @@ export default function App() {
                       <button onClick={() => setUserKpiRange('weekly')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${userKpiRange === 'weekly' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>Weekly</button>
                       <button onClick={() => setUserKpiRange('monthly')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${userKpiRange === 'monthly' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>Monthly</button>
                       <button onClick={() => setUserKpiRange('yearly')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${userKpiRange === 'yearly' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>Yearly</button>
+                      <button onClick={() => setUserKpiRange('custom')} className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase ${userKpiRange === 'custom' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-slate-800'}`}>Custom</button>
                     </div>
                   </div>
+
+                  {userKpiRange === 'custom' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-2">From Date</label>
+                        <input type="date" value={userKpiCustomStart} onChange={(e) => setUserKpiCustomStart(e.target.value)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner" />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-2">To Date</label>
+                        <input type="date" value={userKpiCustomEnd} onChange={(e) => setUserKpiCustomEnd(e.target.value)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner" />
+                      </div>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
                     {[
@@ -3507,8 +3530,8 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="overflow-hidden rounded-[2.5rem] border dark:border-slate-800">
-                  <table className="w-full table-fixed text-left text-[12px]">
+                <div className="overflow-x-auto rounded-[2.5rem] border dark:border-slate-800">
+                  <table className="w-full text-left text-[12px] min-w-[900px]">
                     <thead className="bg-slate-50 dark:bg-slate-950 text-slate-400 uppercase font-black tracking-[0.08em] text-[10px] sticky top-0 z-10 border-b dark:border-slate-800">
                       <tr>
                         <th className="px-2 py-2">User</th>
@@ -3638,8 +3661,8 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="overflow-hidden rounded-[2.5rem] border dark:border-slate-800">
-                  <table className="w-full table-fixed text-left text-[12px]">
+                <div className="overflow-x-auto rounded-[2.5rem] border dark:border-slate-800">
+                  <table className="w-full text-left text-[12px] min-w-[900px]">
                     <thead className="bg-slate-50 dark:bg-slate-950 text-slate-400 uppercase font-black tracking-[0.08em] text-[10px] sticky top-0 z-10 border-b dark:border-slate-800">
                       <tr>
                         <th className="px-2 py-2">User</th>
@@ -3684,12 +3707,6 @@ export default function App() {
                             </td>
                             <td className="px-2 py-2 align-top text-right">
                               <div className="flex items-center justify-end gap-2">
-                                {log.status === 'Pending' && (
-                                  <div className="flex gap-1.5">
-                                    <button onClick={(e) => { e.stopPropagation(); setActionedEntry(log); setApprovalModalOpen(true); }} className="p-2 bg-emerald-500/10 text-emerald-500 rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm" title="Approve"><CheckCircleIcon size={16} /></button>
-                                    <button onClick={(e) => { e.stopPropagation(); setActionedEntry(log); setRejectionModalOpen(true); }} className="p-2 bg-rose-500/10 text-rose-500 rounded-xl hover:bg-rose-500 hover:text-white transition-all shadow-sm" title="Reject"><XIcon size={16} /></button>
-                                  </div>
-                                )}
                                 <button onClick={(e) => { e.stopPropagation(); const internalUser = allUsers.find(u => u.empId.toLowerCase() === log.userId.toLowerCase()); if (internalUser) { setAdminViewingUserId(internalUser.id); startEdit(log); } }} className="p-2.5 text-slate-300 hover:text-indigo-500 transition-all" title="Edit Entry"><EditIcon size={16} /></button>
                                 <button onClick={(e) => { e.stopPropagation(); deleteEntry(log.id, log.userId); }} className="p-2.5 text-slate-300 hover:text-rose-500 transition-all" title="Wipe Session"><TrashIcon size={16} /></button>
                               </div>
