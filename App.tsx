@@ -598,6 +598,7 @@ export default function App() {
 
   const loginExceeded = loginSec > shiftBase;
   const breakExceeded = totalBreakSec > breakLimit;
+  const reasonRequired = user?.role === 'user' && (totalBreakSec > 2 * 3600 || loginSec < shiftBase);
 
   const commitRecord = async (applyForOT?: boolean) => {
     if (!user) return;
@@ -634,6 +635,11 @@ export default function App() {
         pushToast('This entry was already committed. Paste and extract new data to add again.', 'info');
         return;
       }
+    }
+
+    if (reasonRequired && !formData.reason.trim()) {
+      pushToast('Notes / Reason is required when break exceeds 2 hours or login is below shift target.', 'warning');
+      return;
     }
 
     if (applyForOT && !formData.reason.trim()) {
@@ -1897,6 +1903,7 @@ export default function App() {
   }, [filteredDetailsEntries, detailsCurrentPage, detailsPageSize]);
 
   const detailsTotalPages = useMemo(() => Math.ceil(filteredDetailsEntries.length / detailsPageSize), [filteredDetailsEntries.length, detailsPageSize]);
+  const showDetailsKpis = Boolean(adminViewingUserId || selectedUsers.length > 0 || user?.role === 'user');
 
   const otLogEntries = useMemo(() => {
     const eligibilitySec = 4.5 * 3600;
@@ -1930,24 +1937,24 @@ export default function App() {
             {authView === 'register' && authRole !== 'admin' && (
               <div className="group relative">
                 <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                <input required name="name" placeholder="Full Name" className="w-full pl-12 pr-5 py-4 bg-slate-50 dark:bg-slate-950 rounded-xl outline-none border-2 border-transparent focus:border-indigo-500 transition-all text-sm" />
+                <input required name="name" placeholder="Full Name" className="w-full pl-12 pr-5 py-4 bg-slate-50 dark:bg-slate-950 rounded-xl outline-none border-2 border-transparent focus:border-indigo-500 transition-all text-sm dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500" />
               </div>
             )}
             {authRole === 'admin' && (
               <div className="group relative">
                 <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                <input required name="name" placeholder="Admin Name" className="w-full pl-12 pr-5 py-4 bg-slate-50 dark:bg-slate-950 rounded-xl outline-none border-2 border-transparent focus:border-indigo-500 transition-all text-sm uppercase font-black" />
+                <input required name="name" placeholder="Admin Name" className="w-full pl-12 pr-5 py-4 bg-slate-50 dark:bg-slate-950 rounded-xl outline-none border-2 border-transparent focus:border-indigo-500 transition-all text-sm uppercase font-black dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500" />
               </div>
             )}
             {authRole !== 'admin' && (
               <div className="group relative">
                 <IdCardIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                <input required name="empId" placeholder="Employee ID" className="w-full pl-12 pr-5 py-4 bg-slate-50 dark:bg-slate-950 rounded-xl outline-none border-2 border-transparent focus:border-indigo-500 transition-all text-sm uppercase font-black" />
+                <input required name="empId" placeholder="Employee ID" className="w-full pl-12 pr-5 py-4 bg-slate-50 dark:bg-slate-950 rounded-xl outline-none border-2 border-transparent focus:border-indigo-500 transition-all text-sm uppercase font-black dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500" />
               </div>
             )}
             <div className="group relative">
               <KeyIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-              <input required name="password" type="password" placeholder="Password" className="w-full pl-12 pr-5 py-4 bg-slate-50 dark:bg-slate-950 rounded-xl outline-none border-2 border-transparent focus:border-indigo-500 transition-all text-sm" />
+              <input required name="password" type="password" placeholder="Password" className="w-full pl-12 pr-5 py-4 bg-slate-50 dark:bg-slate-950 rounded-xl outline-none border-2 border-transparent focus:border-indigo-500 transition-all text-sm dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500" />
             </div>
             {authError && <div className="text-rose-500 text-[9px] font-black uppercase text-center">{authError}</div>}
             <button type="submit" className="w-full py-5 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-2xl bg-indigo-600 hover:scale-[1.02] transition-all">
@@ -2121,7 +2128,7 @@ export default function App() {
                         {kpiModalMeta.hasShift && <td className="px-4 py-3 text-slate-500">{row.shiftLabel || row.shiftType || '-'}</td>}
                         {kpiModalMeta.hasInbound && <td className="px-4 py-3 font-black text-indigo-600">{row.inbound ?? 0}</td>}
                         {kpiModalMeta.hasOutbound && <td className="px-4 py-3 font-black text-emerald-600">{row.outbound ?? 0}</td>}
-                        {kpiModalMeta.hasLogin && <td className="px-4 py-3 font-mono text-slate-600">{typeof row.loginSec === 'number' ? secondsToTime(row.loginSec) : '-'}</td>}
+                        {kpiModalMeta.hasLogin && <td className="px-4 py-3 font-mono text-slate-600 dark:text-slate-200">{typeof row.loginSec === 'number' ? secondsToTime(row.loginSec) : '-'}</td>}
                         {kpiModalMeta.hasBreak && <td className="px-4 py-3 font-mono text-rose-600">{typeof row.breakSec === 'number' ? secondsToTime(row.breakSec) : '-'}</td>}
                       </tr>
                     ))}
@@ -2276,8 +2283,15 @@ export default function App() {
                   </div>
 
                   <div className="mt-6">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Notes / Reason</label>
-                    <textarea value={formData.reason} onChange={(e) => setFormData({ ...formData, reason: e.target.value })} placeholder="Optional note: reason for OT or any comment" className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-950 rounded-xl outline-none border focus:border-indigo-500/20 font-mono text-xs dark:text-white" rows={3} />
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Notes / Reason{reasonRequired ? ' *' : ''}</label>
+                    <textarea
+                      value={formData.reason}
+                      onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
+                      placeholder={reasonRequired ? 'Required: add reason for break > 2 hours or under-shift login' : 'Optional note: reason for OT or any comment'}
+                      className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-950 rounded-xl outline-none border focus:border-indigo-500/20 font-mono text-xs dark:text-white"
+                      rows={3}
+                      aria-required={reasonRequired}
+                    />
                   </div>
 
                   <div className="mt-4 flex items-center gap-2">
@@ -2493,7 +2507,7 @@ export default function App() {
                 </div>
               </div>
 
-              {adminViewingUserId && (
+              {showDetailsKpis && (
                 <div className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border dark:border-slate-800 shadow-sm space-y-5">
                   <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2">
@@ -2638,7 +2652,7 @@ export default function App() {
                             <td className="px-4 py-5 font-mono dark:text-slate-400">{e.dead}</td>
                             <td className={`px-4 py-5 font-mono font-black ${bExceed ? 'text-rose-500' : 'text-emerald-500'}`}>{secondsToTime(tBrk)}</td>
                             <td className="px-4 py-5 font-mono dark:text-slate-400">{e.wait}</td>
-                            <td className="px-4 py-5 text-sm text-slate-600">{e.reason ? (e.reason.length > 80 ? e.reason.slice(0, 77) + '...' : e.reason) : '-'}</td>
+                            <td className="px-4 py-5 text-sm text-slate-600 dark:text-slate-300">{e.reason ? (e.reason.length > 80 ? e.reason.slice(0, 77) + '...' : e.reason) : '-'}</td>
                             <td className="px-4 py-5 text-center font-black dark:text-slate-200">{e.inbound}</td>
                             <td className="px-4 py-5 text-center font-black dark:text-slate-200">{e.outbound || 0}</td>
                             <td className="px-4 py-5 text-center"><StatusBadge status={e.status} /></td>
@@ -2723,7 +2737,7 @@ export default function App() {
                             <td className="px-6 py-6 text-center">
                               <StatusBadge status={e.status} />
                             </td>
-                            <td className="px-6 py-6 text-sm text-slate-600">{e.reason ? (e.reason.length > 80 ? e.reason.slice(0, 77) + '...' : e.reason) : '-'}</td>
+                            <td className="px-6 py-6 text-sm text-slate-600 dark:text-slate-300">{e.reason ? (e.reason.length > 80 ? e.reason.slice(0, 77) + '...' : e.reason) : '-'}</td>
                             <td className="px-6 py-6 text-right">
                               <button onClick={() => startEdit(e)} className="text-indigo-500 hover:bg-indigo-500/5 px-3 py-1.5 rounded-lg font-bold text-[9px] uppercase transition-colors">Inspect Session</button>
                             </td>
@@ -3355,7 +3369,7 @@ export default function App() {
                             <td className={`px-4 py-5 font-mono font-black ${bExceed ? 'text-rose-600' : 'text-emerald-600'}`}>{secondsToTime(tBrk)}</td>
                             <td className="px-4 py-5 text-center font-black dark:text-slate-200">{log.inbound}</td>
                             <td className="px-4 py-5 text-center font-black dark:text-slate-200">{log.outbound }</td>
-                            <td className="px-4 py-5 text-sm text-slate-600">{log.reason ? (log.reason.length > 80 ? log.reason.slice(0, 77) + '...' : log.reason) : '-'}</td>
+                            <td className="px-4 py-5 text-sm text-slate-600 dark:text-slate-300">{log.reason ? (log.reason.length > 80 ? log.reason.slice(0, 77) + '...' : log.reason) : '-'}</td>
                             <td className="px-4 py-5 text-center">
                               <div className="flex flex-col items-center gap-2">
                                 <StatusBadge status={log.status} />
@@ -3531,7 +3545,7 @@ export default function App() {
                             <td className="px-2 py-2 align-top"><span className={`text-[10px] font-black uppercase ${isEmergency ? 'text-amber-500' : 'text-indigo-500'}`}>{isEmergency ? 'Emergency OT' : log.shiftType}</span></td>
                             <td className="px-2 py-2 align-top font-mono font-black text-indigo-500">{log.currentLogin}</td>
                             <td className="px-2 py-2 align-top font-mono font-black text-amber-600">{secondsToTime(otValue)}</td>
-                            <td className="px-2 py-2 align-top text-[12px] text-slate-600 break-words whitespace-normal">{log.reason ? (log.reason.length > 80 ? log.reason.slice(0, 77) + '...' : log.reason) : '-'}</td>
+                            <td className="px-2 py-2 align-top text-[12px] text-slate-600 dark:text-slate-300 break-words whitespace-normal">{log.reason ? (log.reason.length > 80 ? log.reason.slice(0, 77) + '...' : log.reason) : '-'}</td>
                             <td className="px-2 py-2 align-top text-right">
                               <div className="flex items-center justify-end gap-2">
                                 <button onClick={() => { setActionedEntry(log); setApprovalReason(''); setApprovalModalOpen(true); }} className="p-2 bg-emerald-500/10 text-emerald-500 rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm" title="Approve"><CheckCircleIcon size={16} /></button>
@@ -3664,7 +3678,7 @@ export default function App() {
                             <td className="px-2 py-2 align-top"><span className={`text-[10px] font-black uppercase ${isEmergency ? 'text-amber-500' : 'text-indigo-500'}`}>{isEmergency ? 'Emergency OT' : log.shiftType}</span></td>
                             <td className="px-2 py-2 align-top font-mono font-black text-indigo-500">{log.currentLogin}</td>
                             <td className="px-2 py-2 align-top font-mono font-black text-amber-600">{secondsToTime(otValue)}</td>
-                            <td className="px-2 py-2 align-top text-[12px] text-slate-600 break-words whitespace-normal">{log.reason ? (log.reason.length > 80 ? log.reason.slice(0, 77) + '...' : log.reason) : '-'}</td>
+                            <td className="px-2 py-2 align-top text-[12px] text-slate-600 dark:text-slate-300 break-words whitespace-normal">{log.reason ? (log.reason.length > 80 ? log.reason.slice(0, 77) + '...' : log.reason) : '-'}</td>
                             <td className="px-2 py-2 align-top text-center">
                               <StatusBadge status={log.status} />
                             </td>
