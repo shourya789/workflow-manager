@@ -345,3 +345,36 @@ export const exportDailyPerformanceReport = (entries: any[]) => {
   XLSX.utils.book_append_sheet(workbook, ws, "Daily_Report");
   XLSX.writeFile(workbook, `Daily_Performance_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
 };
+
+export const exportOtRecordsReport = (entries: TimeData[], label: string) => {
+  if (!entries.length) return alert("No data to generate report");
+
+  const rows = entries.map(entry => {
+    const loginSec = timeToSeconds(entry.currentLogin || "00:00:00");
+    const shiftBase = entry.shiftType === "Full Day" ? 9 * 3600 : 4.5 * 3600;
+    const isEmergency = !!entry.emergencyOt;
+    const otSec = isEmergency ? loginSec : Math.max(0, loginSec - shiftBase);
+    const dateObj = new Date(entry.date);
+    return {
+      "OT Date": dateObj.toLocaleDateString("en-GB"),
+      "OT Time": dateObj.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      "Employee ID": (entry.userId || "").toUpperCase(),
+      "Employee Name": entry.userName || entry.userId || "N/A",
+      "Shift": isEmergency ? "Emergency OT" : entry.shiftType,
+      "Login Duration": entry.currentLogin,
+      "OT Duration": secondsToTime(otSec),
+      "Inbound Calls": entry.inbound || 0,
+      "Outbound Calls": entry.outbound || 0,
+      "Status": entry.status || "N/A",
+      "Notes/Reason": entry.reason || "N/A"
+    };
+  });
+
+  const headers = Object.keys(rows[0] || {});
+  const worksheet = XLSX.utils.json_to_sheet(rows, { header: headers });
+  applyPerformanceStyles(worksheet, rows, headers);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "OT_Records");
+  const dateLabel = new Date().toISOString().split("T")[0];
+  XLSX.writeFile(workbook, `OT_${label}_${dateLabel}.xlsx`);
+};

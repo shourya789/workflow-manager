@@ -42,7 +42,7 @@ import {
 import { TimeData, User, ShiftType, EntryStatus } from './types';
 import { timeToSeconds, secondsToTime, autoCorrectTime } from './utils';
 import { parseRawTimeData } from './services/geminiService';
-import { exportToExcel, exportConsolidatedExcel, exportDailyPerformanceReport } from './services/excelService';
+import { exportToExcel, exportConsolidatedExcel, exportDailyPerformanceReport, exportOtRecordsReport } from './services/excelService';
 
 const MILESTONES = [1800, 2100, 2500];
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -3643,13 +3643,13 @@ export default function App() {
                       Search
                     </button>
                     <button
-                      onClick={() => exportDailyPerformanceReport(filteredOtRecords.filter(e => e.status === 'Approved'))}
+                      onClick={() => exportOtRecordsReport(filteredOtRecords.filter(e => e.status === 'Approved'), 'Approved')}
                       className="px-5 py-3 rounded-2xl bg-emerald-600 text-white text-[10px] font-black uppercase hover:bg-emerald-700 transition-colors"
                     >
                       Download Approved
                     </button>
                     <button
-                      onClick={() => exportDailyPerformanceReport(filteredOtRecords.filter(e => e.status === 'Rejected'))}
+                      onClick={() => exportOtRecordsReport(filteredOtRecords.filter(e => e.status === 'Rejected'), 'Rejected')}
                       className="px-5 py-3 rounded-2xl bg-rose-600 text-white text-[10px] font-black uppercase hover:bg-rose-700 transition-colors"
                     >
                       Download Rejected
