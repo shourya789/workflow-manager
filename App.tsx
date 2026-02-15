@@ -414,8 +414,16 @@ export default function App() {
       setInviteToken(token);
       setAuthView('register');
       setAuthRole('user');
+      localStorage.setItem('invite_token', token);
       // Remove token from URL without page reload
       window.history.replaceState({}, '', window.location.pathname);
+    } else {
+      const storedToken = localStorage.getItem('invite_token');
+      if (storedToken) {
+        setInviteToken(storedToken);
+        setAuthView('register');
+        setAuthRole('user');
+      }
     }
 
     const session = localStorage.getItem('current_session');
@@ -559,6 +567,7 @@ export default function App() {
             const newUser = body.user;
             setAllUsers(prev => [...prev, newUser]);
             setInviteToken(null); // Clear token after use
+            localStorage.removeItem('invite_token');
             pushToast('Account created! You can now login.', 'success');
             setAuthView('login');
           } else {
