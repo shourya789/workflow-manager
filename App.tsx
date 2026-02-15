@@ -2650,26 +2650,17 @@ export default function App() {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Quick Views</span>
-                    <div className="flex items-center gap-1 rounded-2xl bg-slate-100 dark:bg-slate-800 px-2 py-1">
-                      <button
-                        onClick={() => applyDetailsQuickRange('today')}
-                        className="px-3 py-1.5 rounded-xl text-[9px] font-black uppercase hover:bg-white/70 dark:hover:bg-slate-700 transition-colors"
-                        type="button"
-                      >
-                        Today
-                      </button>
-                      <select
-                        value={detailsQuickRange}
-                        onChange={(e) => applyDetailsQuickRange(e.target.value as any)}
-                        className="bg-transparent text-[9px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300 outline-none"
-                      >
-                        <option value="today">Today</option>
-                        <option value="weekly">Weekly</option>
-                        <option value="monthly">Monthly</option>
-                        <option value="yearly">Yearly</option>
-                        <option value="custom">Custom</option>
-                      </select>
-                    </div>
+                    <select
+                      value={detailsQuickRange}
+                      onChange={(e) => applyDetailsQuickRange(e.target.value as any)}
+                      className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase outline-none cursor-pointer border-0 text-slate-600 dark:text-slate-300 appearance-none"
+                    >
+                      <option value="today">Today</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="monthly">Monthly</option>
+                      <option value="yearly">Yearly</option>
+                      <option value="custom">Custom</option>
+                    </select>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
@@ -2690,7 +2681,10 @@ export default function App() {
                         type="text"
                         placeholder="Search logs by date, shift, reason, status..."
                         value={detailsSearchQuery}
-                        onChange={(e) => setDetailsSearchQuery(e.target.value)}
+                        onChange={(e) => {
+                          setDetailsSearchQuery(e.target.value);
+                          setDetailsCurrentPage(1);
+                        }}
                         className="w-full py-4 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none pl-14 pr-8 text-xs font-bold border border-transparent focus:border-indigo-500/20 dark:text-white transition-all shadow-inner"
                       />
                     </div>
@@ -3238,26 +3232,17 @@ export default function App() {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Quick Views</span>
-                    <div className="flex items-center gap-1 rounded-2xl bg-slate-100 dark:bg-slate-800 px-2 py-1">
-                      <button
-                        onClick={() => applyMasterQuickRange('today')}
-                        className="px-3 py-1.5 rounded-xl text-[9px] font-black uppercase hover:bg-white/70 dark:hover:bg-slate-700 transition-colors"
-                        type="button"
-                      >
-                        Today
-                      </button>
-                      <select
-                        value={masterQuickRange}
-                        onChange={(e) => applyMasterQuickRange(e.target.value as any)}
-                        className="bg-transparent text-[9px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300 outline-none"
-                      >
-                        <option value="today">Today</option>
-                        <option value="weekly">Weekly</option>
-                        <option value="monthly">Monthly</option>
-                        <option value="yearly">Yearly</option>
-                        <option value="custom">Custom</option>
-                      </select>
-                    </div>
+                    <select
+                      value={masterQuickRange}
+                      onChange={(e) => applyMasterQuickRange(e.target.value as any)}
+                      className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase outline-none cursor-pointer border-0 text-slate-600 dark:text-slate-300 appearance-none"
+                    >
+                      <option value="today">Today</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="monthly">Monthly</option>
+                      <option value="yearly">Yearly</option>
+                      <option value="custom">Custom</option>
+                    </select>
                     <button
                       onClick={() => {
                         const next = {
@@ -3320,23 +3305,48 @@ export default function App() {
                   </div>
                 </div>
                 {showMasterAdvancedFilters && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Agent</label>
-                      <input
-                        type="text"
-                        value={masterFiltersDraft.agentFilter}
-                        onChange={(e) => setMasterFiltersDraft(prev => ({ ...prev, agentFilter: e.target.value }))}
-                        placeholder="Search agent name or ID"
-                        list="agent-list"
-                        className="w-full py-3 px-4 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner"
-                      />
-                      <datalist id="agent-list">
-                        {allUsers.map(u => (
-                          <option key={u.id} value={`${u.name} (${u.empId})`} />
-                        ))}
-                      </datalist>
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Agent</label>
+                        <input
+                          type="text"
+                          value={masterFiltersDraft.agentFilter}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setMasterFiltersDraft(prev => ({ ...prev, agentFilter: val }));
+                            const next = { ...masterFiltersDraft, agentFilter: val };
+                            applyMasterFilters(next);
+                            fetchMasterData(true);
+                          }}
+                          placeholder="Search agent name or ID"
+                          list="agent-list"
+                          className="w-full py-3 px-4 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold border focus:border-indigo-500/20 dark:text-white shadow-inner"
+                        />
+                        <datalist id="agent-list">
+                          {allUsers.map(u => (
+                            <option key={u.id} value={`${u.name} (${u.empId})`} />
+                          ))}
+                        </datalist>
+                      </div>
+                      <div className="flex gap-2 h-[44px]">
+                        <button
+                          onClick={handleMasterSearchApply}
+                          className="flex-1 px-3 py-3 rounded-2xl bg-indigo-600 text-white text-[10px] font-black uppercase hover:bg-indigo-700 transition-colors"
+                          type="button"
+                        >
+                          Apply
+                        </button>
+                        <button
+                          onClick={resetMasterFilters}
+                          className="flex-1 px-3 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[10px] font-black uppercase hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                          type="button"
+                        >
+                          Clear
+                        </button>
+                      </div>
                     </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                     <div className="space-y-1">
                       <label className="text-[9px] font-black text-slate-400 uppercase ml-2">From</label>
                       <input
@@ -3392,22 +3402,6 @@ export default function App() {
                         <option value="No">No</option>
                       </select>
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Apply</label>
-                      <button
-                        onClick={handleMasterSearchApply}
-                        className="w-full px-4 py-3 rounded-2xl bg-indigo-600 text-white text-[10px] font-black uppercase hover:bg-indigo-700 transition-colors"
-                        type="button"
-                      >
-                        Apply Filters
-                      </button>
-                      <button
-                        onClick={resetMasterFilters}
-                        className="w-full px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[10px] font-black uppercase hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-                        type="button"
-                      >
-                        Clear Filters
-                      </button>
                     </div>
                   </div>
                 )}
