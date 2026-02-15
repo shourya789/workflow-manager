@@ -166,6 +166,46 @@ async function ensureSchema(client: any) {
     await client.execute('UPDATE entries SET team_id = ? WHERE team_id IS NULL OR team_id = ""', [DEFAULT_TEAM_ID]);
     await client.execute('UPDATE migrations SET team_id = ? WHERE team_id IS NULL OR team_id = ""', [DEFAULT_TEAM_ID]);
     
+    // Seed 4 teams with admin accounts and permanent join tokens
+    const adminAccounts = [
+      { id: 'team_aakash', name: 'Aakash Pandya Team', email: 'akash.pandya@petpooja.com', password: 'Ak@2026#AP', empId: 'AAKASH' },
+      { id: 'team_ashish', name: 'Ashish Upadhyay Team', email: 'ashish.upadhyay@petpooja.com', password: 'As@2026#AU', empId: 'ASHISH' },
+      { id: 'team_farrin', name: 'Farrin Ansari Team', email: 'farrin.ansari@petpooja.com', password: 'Fa@2026#FA', empId: 'FARRIN' },
+      { id: 'team_arjun', name: 'Arjun Gohil Team', email: 'arjun.gohil@petpooja.com', password: 'Ar@2026#AG', empId: 'ARJUN' }
+    ];
+
+    for (const account of adminAccounts) {
+      // Create team
+      await client.execute(
+        'INSERT OR IGNORE INTO teams(id, name, created_at) VALUES(?,?,?)',
+        [account.id, account.name, createdAt]
+      );
+      
+      // Create admin user
+      const adminExists = await client.execute('SELECT id FROM users WHERE email = ?', [account.email]);
+      if (adminExists.rows.length === 0) {
+        const userId = cryptoUUID();
+        const passwordHash = hashPassword(account.password);
+        await client.execute(
+          'INSERT INTO users(id, emp_id, name, email, password, password_hash, role, team_id, status, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)',
+          [userId, account.empId, account.name.split(' ')[0] + ' ' + account.name.split(' ')[1], account.email, account.password, passwordHash, 'admin', account.id, 'active', createdAt]
+        );
+        console.log(`Created admin: ${account.email}`);
+      }
+      
+      // Create permanent join token for this team (never expires, reusable)
+      const tokenExists = await client.execute('SELECT id FROM invites WHERE team_id = ? AND expires_at IS NULL', [account.id]);
+      if (tokenExists.rows.length === 0) {
+        const inviteId = cryptoUUID();
+        const joinToken = crypto.randomBytes(16).toString('hex').toUpperCase();
+        await client.execute(
+          'INSERT INTO invites(id, team_id, role, token, expires_at, used, created_by, created_at) VALUES(?,?,?,?,?,?,?,?)',
+          [inviteId, account.id, 'user', `ADM-${account.empId.substring(0, 3)}-${joinToken.substring(0, 8)}`, null, 0, 'system', createdAt]
+        );
+        console.log(`Created permanent join token for team: ${account.id}`);
+      }
+    }
+    
     (global as any).__schemaChecked = true;
     console.log('Database schema verified successfully');
   } catch (e) {
@@ -296,8 +336,8 @@ async function requireAdmin(res: any, sessionUser: any) {
 }
 
 async function acceptInviteAndCreateUser(client: any, token: string, payload: any) {
-  const invite = await client.execute('SELECT * FROM invites WHERE token = ? AND used = 0', [token]);
-  if (invite.rows.length === 0) return { error: 'Invite not found or already used' };
+  const invite = await client.execute('SELECT * FROM invites WHERE token = ?', [token]);
+  if (invite.rows.length === 0) return { error: 'Invite not found' };
   const inviteRow = invite.rows[0];
   const expiresAt = inviteRow.expires_at as string;
   if (expiresAt && new Date(expiresAt).getTime() <= Date.now()) return { error: 'Invite expired' };
@@ -332,7 +372,10 @@ async function acceptInviteAndCreateUser(client: any, token: string, payload: an
     'INSERT INTO users(id, emp_id, name, email, password, password_hash, role, team_id, status, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)',
     [id, empId, name, email || null, password || null, passwordHash, inviteRow.role, teamId, 'active', nowIso()]
   );
-  await client.execute('UPDATE invites SET used = 1 WHERE id = ?', [inviteRow.id]);
+  // Only mark invite as used if it has an expiration (non-permanent invites)
+  if (expiresAt) {
+    await client.execute('UPDATE invites SET used = 1 WHERE id = ?', [inviteRow.id]);
+  }
   const user = await client.execute('SELECT id, emp_id, name, role, password, team_id FROM users WHERE id = ?', [id]);
   return { user: user.rows[0], teamId };
 }
@@ -424,42 +467,33 @@ export default async function handler(req: any, res: any) {
 
   if (action === 'auth' && method === 'POST') {
     try {
-      const { empId = '', password = '', role = 'user' } = req.body || {};
-      console.log('Auth attempt:', { empId, role });
+      const { email = '', empId = '', password = '', role = 'user' } = req.body || {};
+      console.log('Auth attempt:', { email, empId, role });
 
-      // allow default admin login (case insensitive)
-      if (role === 'admin' && empId.toLowerCase() === 'aakash' && password === 'Pandya@2026') {
-        console.log('Admin login attempt with default credentials');
-        // ensure admin exists in DB
-        const found = await client.execute('SELECT id, emp_id, name, role, password, team_id, password_hash FROM users WHERE emp_id = ?', ['AAKASH']);
-        if (found.rows.length === 0) {
-          console.log('Creating default admin user');
-          const id = 'admin';
-          const passwordHash = hashPassword('Pandya@2026');
-          await client.execute(
-            'INSERT INTO users(id, emp_id, name, email, password, password_hash, role, team_id, status, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)',
-            [id, 'AAKASH', 'Aakash Pandya', null, 'Pandya@2026', passwordHash, 'admin', DEFAULT_TEAM_ID, 'active', nowIso()]
-          );
-        }
-        const row = (await client.execute('SELECT * FROM users WHERE emp_id = ?', ['AAKASH'])).rows[0];
-        await createSessionForUser(res, client, row.id as string);
-        const user = mapUserRow(row);
-        console.log('Admin login successful');
-        return res.status(200).json({ user });
+      let found;
+      if (role === 'admin') {
+        // Admin login uses email
+        if (!email) return res.status(400).json({ error: 'Email required for admin login' });
+        found = await client.execute('SELECT * FROM users WHERE LOWER(email) = LOWER(?) AND role = ?', [email, 'admin']);
+      } else {
+        // User login uses empId
+        if (!empId) return res.status(400).json({ error: 'Employee ID required for user login' });
+        found = await client.execute('SELECT * FROM users WHERE LOWER(emp_id) = LOWER(?) AND role = ?', [empId, role]);
       }
-
-      const found = await client.execute('SELECT * FROM users WHERE LOWER(emp_id) = LOWER(?) AND role = ?', [empId, role]);
+      
       if (found.rows.length === 0) {
         console.log('Login failed: Invalid credentials');
         return res.status(401).json({ error: 'Invalid credentials' });
       }
+      
       const row = found.rows[0];
       const passwordHash = row.password_hash as string | undefined;
       const passwordOk = passwordHash ? verifyPassword(password, passwordHash) : row.password === password;
       if (!passwordOk) return res.status(401).json({ error: 'Invalid credentials' });
+      
       await createSessionForUser(res, client, row.id as string);
       const user = mapUserRow(row);
-      console.log('User login successful:', user.id);
+      console.log('Login successful:', user.id);
       return res.status(200).json({ user });
     } catch (e: any) {
       console.error('Auth error:', e);
@@ -529,6 +563,30 @@ export default async function handler(req: any, res: any) {
     } catch (e: any) {
       console.error('Accept invite error:', e);
       return res.status(500).json({ error: 'Failed to accept invite', details: e.message });
+    }
+  }
+
+  if (action === 'getJoinTokens' && method === 'GET') {
+    try {
+      const sessionUser = await getSessionUser(req, client);
+      const guard = await requireAdmin(res, sessionUser);
+      if (guard) return guard;
+      
+      // Get permanent join tokens (expires_at IS NULL)
+      const r = await client.execute(
+        'SELECT i.id, i.team_id, i.role, i.token, t.name as team_name FROM invites i LEFT JOIN teams t ON i.team_id = t.id WHERE i.expires_at IS NULL ORDER BY t.name'
+      );
+      const baseUrl = getBaseUrl(req);
+      const tokens = r.rows.map((row: any) => ({
+        teamId: row.team_id,
+        teamName: row.team_name,
+        token: row.token,
+        joinUrl: `${baseUrl}/join?token=${encodeURIComponent(row.token)}`
+      }));
+      return res.status(200).json({ tokens });
+    } catch (e: any) {
+      console.error('Get join tokens error:', e);
+      return res.status(500).json({ error: 'Failed to fetch join tokens', details: e.message });
     }
   }
 

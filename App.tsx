@@ -37,7 +37,8 @@ import {
   LayoutGridIcon,
   FileSpreadsheetIcon,
   AlertCircleIcon,
-  ArrowLeftIcon
+  ArrowLeftIcon,
+  AtSignIcon
 } from 'lucide-react';
 import { TimeData, User, ShiftType, EntryStatus } from './types';
 import { timeToSeconds, secondsToTime, autoCorrectTime } from './utils';
@@ -497,17 +498,19 @@ export default function App() {
     setAuthError('');
     const data = new FormData(e.currentTarget);
     const empId = (data.get('empId') as string || '').trim().toLowerCase();
+    const email = (data.get('email') as string || '').trim().toLowerCase();
     const password = (data.get('password') as string || '');
     const name = (data.get('name') as string || '').trim();
 
     setTimeout(async () => {
       try {
         if (authView === 'login') {
-          // For admin login, use name as empId since admin doesn't have empId field
-          const loginEmpId = authRole === 'admin' ? name.toUpperCase() : empId;
-          const loginPassword = authRole === 'admin' ? password : password;
+          // Admin login uses email, user login uses empId
+          const loginPayload = authRole === 'admin' 
+            ? { email, password, role: authRole }
+            : { empId, password, role: authRole };
 
-          const resp = await fetch('/api/storage?action=auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ empId: loginEmpId, password: loginPassword, role: authRole }) });
+          const resp = await fetch('/api/storage?action=auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(loginPayload) });
 
           if (!resp.ok) {
             const text = await resp.text();
@@ -530,7 +533,7 @@ export default function App() {
           if (found.role === 'admin') { setActiveTab('admin-dashboard'); fetchMasterData(); }
           else setActiveTab('calc');
         } else {
-          if (authRole === 'admin') { pushToast('Admin registration disabled. Default admin: TEAM / Pooja852', 'info'); setAuthView('login'); return; }
+          if (authRole === 'admin') { pushToast('Admin registration disabled. Contact your team admin.', 'info'); setAuthView('login'); return; }
           const resp = await fetch('/api/storage?action=register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ empId, name, password, role: authRole }) });
           const body = await resp.json();
           if (!resp.ok) { setAuthError(body.error || 'Registration failed'); return; }
@@ -2017,8 +2020,8 @@ export default function App() {
             )}
             {authRole === 'admin' && (
               <div className="group relative">
-                <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                <input required name="name" placeholder="Admin Name" className="w-full pl-12 pr-5 py-4 bg-slate-50 dark:bg-slate-950 rounded-xl outline-none border-2 border-transparent focus:border-indigo-500 transition-all text-sm uppercase font-black dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500" />
+                <AtSignIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                <input required name="email" type="email" placeholder="Admin Email" className="w-full pl-12 pr-5 py-4 bg-slate-50 dark:bg-slate-950 rounded-xl outline-none border-2 border-transparent focus:border-indigo-500 transition-all text-sm dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500" />
               </div>
             )}
             {authRole !== 'admin' && (
