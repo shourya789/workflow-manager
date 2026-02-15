@@ -209,7 +209,10 @@ export default function App() {
   const [kpiModalRows, setKpiModalRows] = useState<KpiRow[]>([]);
   const [masterFiltersDraft, setMasterFiltersDraft] = useState<MasterFiltersDraft>(() => createDefaultMasterFilters());
   const [masterFiltersApplied, setMasterFiltersApplied] = useState(true);
-  const [showMasterAdvancedFilters, setShowMasterAdvancedFilters] = useState(false);
+  const [showMasterAdvancedFilters, setShowMasterAdvancedFilters] = useState(true);
+  const [showDetailsAdvancedFilters, setShowDetailsAdvancedFilters] = useState(true);
+  const [masterQuickRange, setMasterQuickRange] = useState<'today' | 'weekly' | 'monthly' | 'yearly' | 'custom'>('today');
+  const [detailsQuickRange, setDetailsQuickRange] = useState<'today' | 'weekly' | 'monthly' | 'yearly' | 'custom'>('today');
 
   // Pagination state for admin tables
   const [masterCurrentPage, setMasterCurrentPage] = useState(1);
@@ -1665,6 +1668,60 @@ export default function App() {
     };
   };
 
+  const getQuickRangeBounds = (range: 'today' | 'weekly' | 'monthly' | 'yearly') => {
+    const end = new Date();
+    end.setHours(23, 59, 59, 999);
+    const start = new Date(end);
+    if (range === 'today') {
+      start.setHours(0, 0, 0, 0);
+      return { start, end };
+    }
+    if (range === 'weekly') {
+      start.setDate(start.getDate() - 6);
+      start.setHours(0, 0, 0, 0);
+      return { start, end };
+    }
+    if (range === 'monthly') {
+      start.setDate(1);
+      start.setHours(0, 0, 0, 0);
+      return { start, end };
+    }
+    start.setMonth(0, 1);
+    start.setHours(0, 0, 0, 0);
+    return { start, end };
+  };
+
+  const applyMasterQuickRange = (range: 'today' | 'weekly' | 'monthly' | 'yearly' | 'custom') => {
+    setMasterQuickRange(range);
+    if (range === 'custom') {
+      setShowMasterAdvancedFilters(true);
+      return;
+    }
+    const bounds = getQuickRangeBounds(range);
+    const next = {
+      ...masterFiltersDraft,
+      searchQuery: '',
+      dateStart: formatDateInput(bounds.start),
+      dateEnd: formatDateInput(bounds.end)
+    };
+    setMasterFiltersDraft(next);
+    applyMasterFilters(next);
+    setMasterFiltersApplied(true);
+    setMasterFocusMode('all');
+    fetchMasterData(true);
+  };
+
+  const applyDetailsQuickRange = (range: 'today' | 'weekly' | 'monthly' | 'yearly' | 'custom') => {
+    setDetailsQuickRange(range);
+    if (range === 'custom') {
+      setShowDetailsAdvancedFilters(true);
+      return;
+    }
+    const bounds = getQuickRangeBounds(range);
+    setDetailsDateStart(formatDateInput(bounds.start));
+    setDetailsDateEnd(formatDateInput(bounds.end));
+  };
+
   const buildTodayOtRecordFilters = (overrides: Partial<OtRecordFilters> = {}) => {
     const today = formatDateInput(new Date());
     return {
@@ -2590,45 +2647,84 @@ export default function App() {
               )}
 
               <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border dark:border-slate-800 shadow-sm space-y-6">
-                <div className="relative group max-w-md">
-                  <SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={18} />
-                  <input
-                    type="text"
-                    placeholder="Search logs by date, shift, reason, status..."
-                    value={detailsSearchQuery}
-                    onChange={(e) => setDetailsSearchQuery(e.target.value)}
-                    className="w-full py-4 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none pl-14 pr-8 text-xs font-bold border border-transparent focus:border-indigo-500/20 dark:text-white transition-all shadow-inner"
-                  />
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Quick Views</span>
+                    <div className="flex items-center gap-1 rounded-2xl bg-slate-100 dark:bg-slate-800 px-2 py-1">
+                      <button
+                        onClick={() => applyDetailsQuickRange('today')}
+                        className="px-3 py-1.5 rounded-xl text-[9px] font-black uppercase hover:bg-white/70 dark:hover:bg-slate-700 transition-colors"
+                        type="button"
+                      >
+                        Today
+                      </button>
+                      <select
+                        value={detailsQuickRange}
+                        onChange={(e) => applyDetailsQuickRange(e.target.value as any)}
+                        className="bg-transparent text-[9px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300 outline-none"
+                      >
+                        <option value="today">Today</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly">Monthly</option>
+                        <option value="yearly">Yearly</option>
+                        <option value="custom">Custom</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowDetailsAdvancedFilters(v => !v)}
+                      className="px-4 py-2 rounded-2xl bg-slate-900 text-white text-[9px] font-black uppercase hover:bg-slate-800 transition-colors"
+                      type="button"
+                    >
+                      {showDetailsAdvancedFilters ? 'Hide Advanced Filters' : 'Advanced Filters'}
+                    </button>
+                  </div>
                 </div>
 
-                <div className="flex flex-col md:flex-row gap-4">
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">From Date</label>
-                    <input type="date" value={detailsDateStart} onChange={(e) => setDetailsDateStart(e.target.value)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner" />
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">To Date</label>
-                    <input type="date" value={detailsDateEnd} onChange={(e) => setDetailsDateEnd(e.target.value)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner" />
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Status</label>
-                    <select value={detailsStatusFilter} onChange={(e) => setDetailsStatusFilter(e.target.value as any)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner appearance-none cursor-pointer">
-                      <option value="All">All Statuses</option>
-                      <option value="Approved">Approved</option>
-                      <option value="Pending">Pending</option>
-                      <option value="Rejected">Rejected</option>
-                      <option value="N/A">N/A</option>
-                    </select>
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Shift</label>
-                    <select value={detailsShiftFilter} onChange={(e) => setDetailsShiftFilter(e.target.value as any)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner appearance-none cursor-pointer">
-                      <option value="All">All Shifts</option>
-                      <option value="Full Day">Full Day</option>
-                      <option value="Half Day">Half Day</option>
-                    </select>
-                  </div>
-                </div>
+                {showDetailsAdvancedFilters && (
+                  <>
+                    <div className="relative group max-w-md">
+                      <SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={18} />
+                      <input
+                        type="text"
+                        placeholder="Search logs by date, shift, reason, status..."
+                        value={detailsSearchQuery}
+                        onChange={(e) => setDetailsSearchQuery(e.target.value)}
+                        className="w-full py-4 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none pl-14 pr-8 text-xs font-bold border border-transparent focus:border-indigo-500/20 dark:text-white transition-all shadow-inner"
+                      />
+                    </div>
+
+                    <div className="flex flex-col md:flex-row gap-4">
+                      <div className="flex-1 space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-2">From Date</label>
+                        <input type="date" value={detailsDateStart} onChange={(e) => setDetailsDateStart(e.target.value)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner" />
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-2">To Date</label>
+                        <input type="date" value={detailsDateEnd} onChange={(e) => setDetailsDateEnd(e.target.value)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner" />
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Status</label>
+                        <select value={detailsStatusFilter} onChange={(e) => setDetailsStatusFilter(e.target.value as any)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner appearance-none cursor-pointer">
+                          <option value="All">All Statuses</option>
+                          <option value="Approved">Approved</option>
+                          <option value="Pending">Pending</option>
+                          <option value="Rejected">Rejected</option>
+                          <option value="N/A">N/A</option>
+                        </select>
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Shift</label>
+                        <select value={detailsShiftFilter} onChange={(e) => setDetailsShiftFilter(e.target.value as any)} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-bold dark:text-white shadow-inner appearance-none cursor-pointer">
+                          <option value="All">All Shifts</option>
+                          <option value="Full Day">Full Day</option>
+                          <option value="Half Day">Half Day</option>
+                        </select>
+                      </div>
+                    </div>
+                  </>
+                )}
 
                 <div className="overflow-x-auto rounded-[2rem] border dark:border-slate-800/50">
                   <table className="w-full text-left text-[13px] border-collapse min-w-[1300px]">
@@ -3138,69 +3234,30 @@ export default function App() {
                   <button onClick={() => exportConsolidatedExcel(masterDataServer)} className="bg-emerald-600 px-6 py-4 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-emerald-700 transition-all shadow-emerald-600/20"><FileSpreadsheetIcon size={16} className="mr-2 inline" /> Generate Team Report</button>
                 </div>
               </div>
-
-              <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border dark:border-slate-800 shadow-sm">
-                <div className="flex flex-col md:flex-row md:items-center gap-4">
-                  <div className="relative group flex-1">
-                    <SearchIcon className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={16} />
-                    <input
-                      type="text"
-                      placeholder="Smart search: Agent, 2026-02-04, keyword in reason"
-                      value={masterFiltersDraft.searchQuery}
-                      onChange={(e) => setMasterFiltersDraft(prev => ({ ...prev, searchQuery: e.target.value }))}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handleMasterSearchApply();
-                        }
-                      }}
-                      list="master-search-list"
-                      className="w-full py-4 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none pl-12 pr-6 text-xs font-bold border border-transparent focus:border-indigo-500/20 dark:text-white transition-all shadow-inner"
-                    />
-                    <datalist id="master-search-list">
-                      {allUsers.map(u => (
-                        <option key={u.id} value={`${u.name} (${u.empId})`} />
-                      ))}
-                    </datalist>
-                  </div>
-                  <button
-                    onClick={resetMasterFilters}
-                    className="px-5 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[10px] font-black uppercase hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-                  >
-                    Clear Filters
-                  </button>
-                  <button
-                    onClick={handleMasterSearchApply}
-                    className="px-5 py-3 rounded-2xl bg-indigo-600 text-white text-[10px] font-black uppercase hover:bg-indigo-700 transition-colors"
-                  >
-                    Apply
-                  </button>
-                  <button
-                    onClick={() => exportDailyPerformanceReport(filteredMasterData)}
-                    className="px-5 py-3 rounded-2xl bg-indigo-600 text-white text-[10px] font-black uppercase hover:bg-indigo-700 transition-colors"
-                  >
-                    Export Current View (CSV)
-                  </button>
-                </div>
-              </div>
-
               <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border dark:border-slate-800 shadow-sm space-y-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Quick Views</span>
-                    <button
-                      onClick={() => {
-                        const today = formatDateInput(new Date());
-                        const next = { ...masterFiltersDraft, searchQuery: '', dateStart: today, dateEnd: today };
-                        setMasterFiltersDraft(next);
-                        applyMasterFilters(next);
-                        fetchMasterData(true);
-                      }}
-                      className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase hover:bg-indigo-50 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-                      type="button"
-                    >
-                      Today
-                    </button>
+                    <div className="flex items-center gap-1 rounded-2xl bg-slate-100 dark:bg-slate-800 px-2 py-1">
+                      <button
+                        onClick={() => applyMasterQuickRange('today')}
+                        className="px-3 py-1.5 rounded-xl text-[9px] font-black uppercase hover:bg-white/70 dark:hover:bg-slate-700 transition-colors"
+                        type="button"
+                      >
+                        Today
+                      </button>
+                      <select
+                        value={masterQuickRange}
+                        onChange={(e) => applyMasterQuickRange(e.target.value as any)}
+                        className="bg-transparent text-[9px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300 outline-none"
+                      >
+                        <option value="today">Today</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly">Monthly</option>
+                        <option value="yearly">Yearly</option>
+                        <option value="custom">Custom</option>
+                      </select>
+                    </div>
                     <button
                       onClick={() => {
                         const next = {
@@ -3247,6 +3304,13 @@ export default function App() {
                   </div>
                   <div className="flex items-center gap-2">
                     <button
+                      onClick={() => exportDailyPerformanceReport(filteredMasterData)}
+                      className="px-4 py-2 rounded-2xl bg-indigo-600 text-white text-[9px] font-black uppercase hover:bg-indigo-700 transition-colors"
+                      type="button"
+                    >
+                      Export Current View (CSV)
+                    </button>
+                    <button
                       onClick={() => setShowMasterAdvancedFilters(v => !v)}
                       className="px-4 py-2 rounded-2xl bg-slate-900 text-white text-[9px] font-black uppercase hover:bg-slate-800 transition-colors"
                       type="button"
@@ -3256,7 +3320,7 @@ export default function App() {
                   </div>
                 </div>
                 {showMasterAdvancedFilters && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
                     <div className="space-y-1">
                       <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Agent</label>
                       <input
@@ -3327,6 +3391,23 @@ export default function App() {
                         <option value="Yes">Yes</option>
                         <option value="No">No</option>
                       </select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Apply</label>
+                      <button
+                        onClick={handleMasterSearchApply}
+                        className="w-full px-4 py-3 rounded-2xl bg-indigo-600 text-white text-[10px] font-black uppercase hover:bg-indigo-700 transition-colors"
+                        type="button"
+                      >
+                        Apply Filters
+                      </button>
+                      <button
+                        onClick={resetMasterFilters}
+                        className="w-full px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[10px] font-black uppercase hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                        type="button"
+                      >
+                        Clear Filters
+                      </button>
                     </div>
                   </div>
                 )}
