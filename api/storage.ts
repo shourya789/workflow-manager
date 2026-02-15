@@ -161,10 +161,10 @@ async function ensureSchema(client: any) {
 
     // Seed 4 teams with admin accounts and permanent join tokens
     const adminAccounts = [
-      { id: 'team_aakash', name: 'Aakash Pandya Team', email: 'akash.pandya@petpooja.com', password: 'Ak@2026#AP', empId: 'AAKASH' },
-      { id: 'team_ashish', name: 'Ashish Upadhyay Team', email: 'ashish.upadhyay@petpooja.com', password: 'As@2026#AU', empId: 'ASHISH' },
-      { id: 'team_farrin', name: 'Farrin Ansari Team', email: 'farrin.ansari@petpooja.com', password: 'Fa@2026#FA', empId: 'FARRIN' },
-      { id: 'team_arjun', name: 'Arjun Gohil Team', email: 'arjun.gohil@petpooja.com', password: 'Ar@2026#AG', empId: 'ARJUN' }
+      { id: 'team_aakash', name: 'Aakash Pandya Team', email: 'akash.pandya@petpooja.com', password: 'Ak@2026#AP', empId: 'AAKASH', token: 'ADM-AAK-0C3DA7EB' },
+      { id: 'team_ashish', name: 'Ashish Upadhyay Team', email: 'ashish.upadhyay@petpooja.com', password: 'As@2026#AU', empId: 'ASHISH', token: 'ADM-ASH-80BEC2DF' },
+      { id: 'team_farrin', name: 'Farrin Ansari Team', email: 'farrin.ansari@petpooja.com', password: 'Fa@2026#FA', empId: 'FARRIN', token: 'ADM-FAR-4218C5AE' },
+      { id: 'team_arjun', name: 'Arjun Gohil Team', email: 'arjun.gohil@petpooja.com', password: 'Ar@2026#AG', empId: 'ARJUN', token: 'ADM-ARJ-A13B2366' }
     ];
 
     for (const account of adminAccounts) {
@@ -186,16 +186,23 @@ async function ensureSchema(client: any) {
         console.log(`Created admin: ${account.email}`);
       }
       
-      // Create permanent join token for this team (never expires, reusable)
-      const tokenExists = await client.execute('SELECT id FROM invites WHERE team_id = ? AND expires_at IS NULL', [account.id]);
+      // Create or update permanent join token for this team (with fixed token and correct team_id)
+      const tokenExists = await client.execute('SELECT id, team_id FROM invites WHERE token = ?', [account.token]);
       if (tokenExists.rows.length === 0) {
+        // Create new invite with correct team_id
         const inviteId = cryptoUUID();
-        const joinToken = crypto.randomBytes(16).toString('hex').toUpperCase();
         await client.execute(
           'INSERT INTO invites(id, team_id, role, token, expires_at, used, created_by, created_at) VALUES(?,?,?,?,?,?,?,?)',
-          [inviteId, account.id, 'user', `ADM-${account.empId.substring(0, 3)}-${joinToken.substring(0, 8)}`, null, 0, 'system', createdAt]
+          [inviteId, account.id, 'user', account.token, null, 0, 'system', createdAt]
         );
-        console.log(`Created permanent join token for team: ${account.id}`);
+        console.log(`Created permanent join token for team: ${account.id} with token: ${account.token}`);
+      } else {
+        // Update existing invite to ensure it has correct team_id
+        const existingTeamId = tokenExists.rows[0].team_id;
+        if (existingTeamId !== account.id) {
+          await client.execute('UPDATE invites SET team_id = ? WHERE token = ?', [account.id, account.token]);
+          console.log(`Updated join token team_id from ${existingTeamId} to ${account.id}`);
+        }
       }
     }
     
