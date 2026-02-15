@@ -1,5 +1,6 @@
 import { createClient } from '@libsql/client';
 import archiver from 'archiver';
+import crypto from 'crypto';
 
 const DATABASE_URL = process.env.DATABASE_URL || 'libsql://workflow-shourya789.aws-ap-northeast-1.turso.io';
 
@@ -228,7 +229,6 @@ function clearSessionCookie(res: any) {
 }
 
 function hashPassword(password: string) {
-  const crypto = require('crypto');
   const salt = crypto.randomBytes(16);
   const hash = crypto.scryptSync(password, salt, 64);
   return `${salt.toString('hex')}:${hash.toString('hex')}`;
@@ -236,7 +236,6 @@ function hashPassword(password: string) {
 
 function verifyPassword(password: string, storedHash: string) {
   try {
-    const crypto = require('crypto');
     const [saltHex, hashHex] = (storedHash || '').split(':');
     if (!saltHex || !hashHex) return false;
     const salt = Buffer.from(saltHex, 'hex');
@@ -275,7 +274,6 @@ async function getSessionUser(req: any, client: any) {
 }
 
 async function createSessionForUser(res: any, client: any, userId: string) {
-  const crypto = require('crypto');
   const token = crypto.randomBytes(32).toString('hex');
   const createdAt = nowIso();
   const expiresAt = new Date(Date.now() + SESSION_TTL_HOURS * 3600 * 1000).toISOString();
@@ -468,7 +466,6 @@ export default async function handler(req: any, res: any) {
       if (targetTeamId === null) targetTeamId = null;
       if (targetTeamId === null && role !== 'admin') return logBadRequest(res, 'New team invites must be admin role', { role });
       const id = cryptoUUID();
-      const crypto = require('crypto');
       const token = crypto.randomBytes(32).toString('hex');
       const createdAt = nowIso();
       const ttl = Number(expiresInHours || INVITE_TTL_HOURS);
@@ -780,5 +777,5 @@ export default async function handler(req: any, res: any) {
 }
 
 function cryptoUUID() {
-  try { return (globalThis as any).crypto?.randomUUID?.() || require('crypto').randomUUID(); } catch (e) { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
+  try { return (globalThis as any).crypto?.randomUUID?.() || crypto.randomUUID(); } catch (e) { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
 }
