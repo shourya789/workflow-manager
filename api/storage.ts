@@ -215,6 +215,12 @@ function setSessionCookie(res: any, token: string, expiresAt: string) {
   res.setHeader('Set-Cookie', parts.join('; '));
 }
 
+function getBaseUrl(req: any) {
+  const proto = (req?.headers?.['x-forwarded-proto'] as string) || 'https';
+  const host = (req?.headers?.host as string) || '';
+  return `${proto}://${host}`;
+}
+
 function clearSessionCookie(res: any) {
   const isProd = process.env.NODE_ENV === 'production';
   const parts = [
@@ -314,6 +320,13 @@ async function acceptInviteAndCreateUser(client: any, token: string, payload: an
   const email = (payload.email || '').trim();
   const password = payload.password || '';
   const passwordHash = password ? hashPassword(password) : null;
+
+  const empExists = await client.execute('SELECT id FROM users WHERE LOWER(emp_id) = LOWER(?)', [empId]);
+  if (empExists.rows.length > 0) return { error: 'Employee ID already exists' };
+  if (email) {
+    const emailExists = await client.execute('SELECT id FROM users WHERE LOWER(email) = LOWER(?)', [email]);
+    if (emailExists.rows.length > 0) return { error: 'Email already exists' };
+  }
 
   await client.execute(
     'INSERT INTO users(id, emp_id, name, email, password, password_hash, role, team_id, status, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)',
@@ -474,7 +487,8 @@ export default async function handler(req: any, res: any) {
         'INSERT INTO invites(id, team_id, role, token, expires_at, used, created_by, created_at) VALUES(?,?,?,?,?,?,?,?)',
         [id, targetTeamId, role, token, expiresAt, 0, sessionUser.id, createdAt]
       );
-      return res.status(201).json({ invite: { id, teamId: targetTeamId, role, token, expiresAt } });
+      const inviteUrl = `${getBaseUrl(req)}/invite?token=${encodeURIComponent(token)}`;
+      return res.status(201).json({ invite: { id, teamId: targetTeamId, role, token, expiresAt, inviteUrl } });
     } catch (e: any) {
       console.error('Create invite error:', e);
       return res.status(500).json({ error: 'Failed to create invite', details: e.message });
@@ -490,7 +504,13 @@ export default async function handler(req: any, res: any) {
         'SELECT id, team_id, role, token, expires_at, used, created_by, created_at FROM invites WHERE (team_id = ? OR (team_id IS NULL AND created_by = ?)) ORDER BY created_at DESC',
         [sessionUser.team_id, sessionUser.id]
       );
-      return res.status(200).json({ invites: r.rows });
+      const baseUrl = getBaseUrl(req);
+      const invites = r.rows.map((row: any) => ({
+        ...row,
+        invite_url: `${baseUrl}/invite?token=${encodeURIComponent(row.token)}`,
+        expired: row.expires_at ? new Date(row.expires_at).getTime() <= Date.now() : false
+      }));
+      return res.status(200).json({ invites });
     } catch (e: any) {
       console.error('Get invites error:', e);
       return res.status(500).json({ error: 'Failed to fetch invites', details: e.message });
