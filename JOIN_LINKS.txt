@@ -23,7 +23,7 @@ https://workflow-manager-hazel.vercel.app/invite?token=ADM-ARJ-A13B2366
 👑 Admin Link 3 (Ashish Upadhyay Team)
 https://workflow-manager-hazel.vercel.app/invite?token=ADM-ASH-80BEC2DF
 
-👑 Admin Link 4 (Farrin Ansari Team)
+👑 Admin Link 4 (Farhin Ansari Team)
 https://workflow-manager-hazel.vercel.app/invite?token=ADM-FAR-4218C5AE
 
 ========================================
@@ -32,7 +32,7 @@ https://workflow-manager-hazel.vercel.app/invite?token=ADM-FAR-4218C5AE
 
 ✓ Aakash's team: 9 users, all assigned to team_aakash
 ✓ Ashish's team: 4 users, all assigned to team_ashish  
-✓ Farrin's team: 5 users, all assigned to team_farrin
+✓ Farhin's team: 5 users, all assigned to team_farhin
 ✓ Team isolation: Each admin only sees their own team's users
 ✓ Bug FIXED: Users now go to correct team based on join link used
 
@@ -48,8 +48,8 @@ Password: Ak@2026#AP
 Email / Login ID: ashish.upadhyay@petpooja.com
 Password: As@2026#AU
 
-🧑‍💼 3) Farrin Ansari
-Email / Login ID: farrin.ansari@petpooja.com
+🧑‍💼 3) Farhin Ansari
+Email / Login ID: farhin.ansari@petpooja.com
 Password: Fa@2026#FA
 
 🧑‍💼 4) Arjun Gohil

@@ -17,10 +17,10 @@
 - **Password:** As@2026#AU
 - **Team:** Ashish Upadhyay Team
 
-### 3) Farrin Ansari
-- **Email:** farrin.ansari@petpooja.com
+### 3) Farhin Ansari
+- **Email:** farhin.ansari@petpooja.com
 - **Password:** Fa@2026#FA
-- **Team:** Farrin Ansari Team
+- **Team:** Farhin Ansari Team
 
 ### 4) Arjun Gohil
 - **Email:** arjun.gohil@petpooja.com
@@ -40,7 +40,7 @@
 ### 👑 Team 3: Ashish Upadhyay Team
 **Join Link:** https://workflow-manager-hazel.vercel.app/invite?token=ADM-ASH-80BEC2DF
 
-### 👑 Team 4: Farrin Ansari Team
+### 👑 Team 4: Farhin Ansari Team
 **Join Link:** https://workflow-manager-hazel.vercel.app/invite?token=ADM-FAR-4218C5AE
 
 **✅ These links never expire and can be reused by multiple users**  

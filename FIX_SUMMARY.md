@@ -36,7 +36,7 @@ if (migrationCheck.rows.length === 0) {
 ✅ Users created via Aakash's link go to `team_aakash`
 ✅ Users created via Arjun's link go to `team_arjun`
 ✅ Users created via Ashish's link go to `team_ashish`
-✅ Users created via Farrin's link go to `team_farrin`
+✅ Users created via Farhin's link go to `team_farhin`
 ✅ Users stay in their assigned team (no migration)
 ✅ Team isolation enforced - admins only see their team's users
 

@@ -163,7 +163,7 @@ async function ensureSchema(client: any) {
     const adminAccounts = [
       { id: 'team_aakash', name: 'Aakash Pandya Team', email: 'akash.pandya@petpooja.com', password: 'Ak@2026#AP', empId: 'AAKASH', token: 'ADM-AAK-0C3DA7EB' },
       { id: 'team_ashish', name: 'Ashish Upadhyay Team', email: 'ashish.upadhyay@petpooja.com', password: 'As@2026#AU', empId: 'ASHISH', token: 'ADM-ASH-80BEC2DF' },
-      { id: 'team_farrin', name: 'Farrin Ansari Team', email: 'farrin.ansari@petpooja.com', password: 'Fa@2026#FA', empId: 'FARRIN', token: 'ADM-FAR-4218C5AE' },
+      { id: 'team_farhin', name: 'Farhin Ansari Team', email: 'farhin.ansari@petpooja.com', password: 'Fa@2026#FA', empId: 'FARHIN', token: 'ADM-FAR-4218C5AE' },
       { id: 'team_arjun', name: 'Arjun Gohil Team', email: 'arjun.gohil@petpooja.com', password: 'Ar@2026#AG', empId: 'ARJUN', token: 'ADM-ARJ-A13B2366' }
     ];
 
@@ -218,13 +218,23 @@ async function ensureSchema(client: any) {
       await client.execute('UPDATE migrations SET team_id = ? WHERE team_id = ? OR team_id IS NULL OR team_id = ""', ['team_aakash', DEFAULT_TEAM_ID]);
       
       // Record that this migration has been completed
-      await client.execute(
-        'INSERT INTO migrations(id, created_at, migrated_users, migrated_entries, mapping, team_id) VALUES(?,?,?,?,?,?)',
-        ['migration_to_aakash_team', createdAt, 0, 0, 'Migrated default team to team_aakash', 'team_aakash']
-      );
-      console.log('Migration to Aakash team completed');
-    } else {
-      console.log('Migration to Aakash team already completed, skipping');
+      await client.execute('INSERT INTO migrations(id, created_at, migrated_users, migrated_entries, mapping, team_id) VALUES(?,?,?,?,?,?)',
+        ['migration_to_aakash_team', createdAt, usersMigrated.rowsAffected || 0, entriesMigrated.rowsAffected || 0, JSON.stringify({}), 'team_aakash']);
+      console.log('Migration completed');
+    }
+    
+    // Migrate team_farrin to team_farhin (fix spelling)
+    const farhinMigrationCheck = await client.execute('SELECT id FROM migrations WHERE id = ?', ['migration_farrin_to_farhin']);
+    if (farhinMigrationCheck.rows.length === 0) {
+      console.log('Running one-time migration: renaming team_farrin to team_farhin');
+      await client.execute('UPDATE teams SET id = ?, name = ? WHERE id = ?', ['team_farhin', 'Farhin Ansari Team', 'team_farrin']);
+      await client.execute('UPDATE users SET team_id = ? WHERE team_id = ?', ['team_farhin', 'team_farrin']);
+      await client.execute('UPDATE users SET email = ?, emp_id = ? WHERE email = ?', ['farhin.ansari@petpooja.com', 'FARHIN', 'farrin.ansari@petpooja.com']);
+      await client.execute('UPDATE entries SET team_id = ? WHERE team_id = ?', ['team_farhin', 'team_farrin']);
+      await client.execute('UPDATE invites SET team_id = ? WHERE team_id = ?', ['team_farhin', 'team_farrin']);
+      await client.execute('INSERT INTO migrations(id, created_at, migrated_users, migrated_entries, mapping, team_id) VALUES(?,?,?,?,?,?)',
+        ['migration_farrin_to_farhin', createdAt, 0, 0, JSON.stringify({}), 'team_farhin']);
+      console.log('Farhin spelling migration completed');
     }
     
     (global as any).__schemaChecked = true;
@@ -357,18 +367,26 @@ async function requireAdmin(res: any, sessionUser: any) {
 }
 
 async function acceptInviteAndCreateUser(client: any, token: string, payload: any) {
+  console.log('[acceptInvite] Token:', token, 'Payload:', payload);
   const invite = await client.execute('SELECT * FROM invites WHERE token = ?', [token]);
-  if (invite.rows.length === 0) return { error: 'Invite not found' };
+  if (invite.rows.length === 0) {
+    console.log('[acceptInvite] ERROR: Invite not found for token:', token);
+    return { error: 'Invite not found' };
+  }
   const inviteRow = invite.rows[0];
+  console.log('[acceptInvite] Found invite:', { id: inviteRow.id, team_id: inviteRow.team_id, role: inviteRow.role });
   const expiresAt = inviteRow.expires_at as string;
   if (expiresAt && new Date(expiresAt).getTime() <= Date.now()) return { error: 'Invite expired' };
 
   let teamId = inviteRow.team_id as string | null;
+  console.log('[acceptInvite] Team ID from invite:', teamId);
   if (!teamId) {
+    console.log('[acceptInvite] WARNING: Invite has no team_id, creating new team');
     const newTeamId = cryptoUUID();
     const teamName = (payload.teamName || payload.team_name || `Team ${String(token).slice(0, 6)}`) as string;
     await client.execute('INSERT INTO teams(id, name, created_at) VALUES(?,?,?)', [newTeamId, teamName, nowIso()]);
     teamId = newTeamId;
+    console.log('[acceptInvite] Created new team:', teamId);
   }
 
   const teamCount = await client.execute('SELECT COUNT(*) as total FROM users WHERE team_id = ?', [teamId]);
@@ -390,6 +408,7 @@ async function acceptInviteAndCreateUser(client: any, token: string, payload: an
     if (emailExists.rows.length > 0) return { error: 'Email already exists' };
   }
 
+  console.log('[acceptInvite] Creating user with team_id:', teamId);
   await client.execute(
     'INSERT INTO users(id, emp_id, name, email, password, password_hash, role, team_id, status, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)',
     [id, empId, name, email || null, password || null, passwordHash, inviteRow.role, teamId, 'active', nowIso()]
@@ -399,6 +418,7 @@ async function acceptInviteAndCreateUser(client: any, token: string, payload: an
     await client.execute('UPDATE invites SET used = 1 WHERE id = ?', [inviteRow.id]);
   }
   const user = await client.execute('SELECT id, emp_id, name, role, password, team_id FROM users WHERE id = ?', [id]);
+  console.log('[acceptInvite] User created successfully:', { id, empId, team_id: user.rows[0].team_id });
   return { user: user.rows[0], teamId };
 }
 
