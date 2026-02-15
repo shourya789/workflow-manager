@@ -145,6 +145,7 @@ export default function App() {
   const [authView, setAuthView] = useState<'login' | 'register'>('login');
   const [authRole, setAuthRole] = useState<'user' | 'admin'>('user');
   const [authError, setAuthError] = useState('');
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
   const [entries, setEntries] = useState<TimeData[]>([]);
   const [formData, setFormData] = useState(INITIAL_FORM_STATE);
   const [isParsing, setIsParsing] = useState(false);
@@ -406,6 +407,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // Check for invite token in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    if (token) {
+      setInviteToken(token);
+      setAuthView('register');
+      setAuthRole('user');
+      // Remove token from URL without page reload
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+
     const session = localStorage.getItem('current_session');
     if (session) {
       const parsedUser = JSON.parse(session);
@@ -534,12 +546,29 @@ export default function App() {
           else setActiveTab('calc');
         } else {
           if (authRole === 'admin') { pushToast('Admin registration disabled. Contact your team admin.', 'info'); setAuthView('login'); return; }
-          const resp = await fetch('/api/storage?action=register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ empId, name, password, role: authRole }) });
-          const body = await resp.json();
-          if (!resp.ok) { setAuthError(body.error || 'Registration failed'); return; }
-          const newUser = body.user;
-          setAllUsers(prev => [...prev, newUser]);
-          setAuthView('login');
+          
+          // Use acceptInvite endpoint if we have an invite token, otherwise use register
+          if (inviteToken) {
+            const resp = await fetch('/api/storage?action=acceptInvite', { 
+              method: 'POST', 
+              headers: { 'Content-Type': 'application/json' }, 
+              body: JSON.stringify({ token: inviteToken, empId, name, password }) 
+            });
+            const body = await resp.json();
+            if (!resp.ok) { setAuthError(body.error || 'Join failed'); return; }
+            const newUser = body.user;
+            setAllUsers(prev => [...prev, newUser]);
+            setInviteToken(null); // Clear token after use
+            pushToast('Account created! You can now login.', 'success');
+            setAuthView('login');
+          } else {
+            const resp = await fetch('/api/storage?action=register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ empId, name, password, role: authRole }) });
+            const body = await resp.json();
+            if (!resp.ok) { setAuthError(body.error || 'Registration failed'); return; }
+            const newUser = body.user;
+            setAllUsers(prev => [...prev, newUser]);
+            setAuthView('login');
+          }
         }
       } catch (e: any) {
         console.error('Auth error:', e);
