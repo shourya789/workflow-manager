@@ -1682,7 +1682,7 @@ export default function App() {
       return { start, end };
     }
     if (range === 'monthly') {
-      start.setDate(1);
+      start.setMonth(start.getMonth(), 1);
       start.setHours(0, 0, 0, 0);
       return { start, end };
     }
@@ -2653,19 +2653,18 @@ export default function App() {
                     <select
                       value={detailsQuickRange}
                       onChange={(e) => applyDetailsQuickRange(e.target.value as any)}
-                      className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase outline-none cursor-pointer border-0 text-slate-600 dark:text-slate-300 appearance-none"
+                      className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-bold outline-none cursor-pointer border-0 text-slate-600 dark:text-slate-300 appearance-none"
                     >
                       <option value="today">Today</option>
                       <option value="weekly">Weekly</option>
                       <option value="monthly">Monthly</option>
                       <option value="yearly">Yearly</option>
-                      <option value="custom">Custom</option>
                     </select>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => setShowDetailsAdvancedFilters(v => !v)}
-                      className="px-4 py-2 rounded-2xl bg-slate-900 text-white text-[9px] font-black uppercase hover:bg-slate-800 transition-colors"
+                      className="px-4 py-2 rounded-2xl bg-slate-900 text-white text-[9px] font-bold hover:bg-slate-800 transition-colors"
                       type="button"
                     >
                       {showDetailsAdvancedFilters ? 'Hide Advanced Filters' : 'Advanced Filters'}
@@ -3235,69 +3234,98 @@ export default function App() {
                     <select
                       value={masterQuickRange}
                       onChange={(e) => applyMasterQuickRange(e.target.value as any)}
-                      className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase outline-none cursor-pointer border-0 text-slate-600 dark:text-slate-300 appearance-none"
+                      className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-bold outline-none cursor-pointer border-0 text-slate-600 dark:text-slate-300 appearance-none"
                     >
                       <option value="today">Today</option>
                       <option value="weekly">Weekly</option>
                       <option value="monthly">Monthly</option>
                       <option value="yearly">Yearly</option>
-                      <option value="custom">Custom</option>
                     </select>
-                    <button
-                      onClick={() => {
-                        const next = {
-                          ...masterFiltersDraft,
-                          searchQuery: '',
-                          sortBy: 'productivity',
-                          breakViolationFilter: 'All',
-                          overtimeFilter: 'All',
-                          statusFilter: 'All'
-                        };
-                        setMasterFiltersDraft(next);
-                        applyMasterFilters(next);
-                        fetchMasterData(true);
+                    <select
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          const next = {
+                            ...masterFiltersDraft,
+                            searchQuery: '',
+                            sortBy: 'productivity',
+                            breakViolationFilter: 'All',
+                            overtimeFilter: 'All',
+                            statusFilter: 'All'
+                          };
+                          setMasterFiltersDraft(next);
+                          const bounds = getQuickRangeBounds(e.target.value as any);
+                          next.dateStart = bounds.start.toISOString().split('T')[0];
+                          next.dateEnd = bounds.end.toISOString().split('T')[0];
+                          applyMasterFilters(next);
+                          fetchMasterData(true);
+                          e.target.value = '';
+                        }
                       }}
-                      className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase hover:bg-indigo-50 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-                      type="button"
+                      value=""
+                      className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-bold outline-none cursor-pointer border-0 text-slate-600 dark:text-slate-300 appearance-none"
                     >
-                      Low Performers
-                    </button>
-                    <button
-                      onClick={() => {
-                        const next = { ...masterFiltersDraft, searchQuery: '', breakViolationFilter: 'Yes', overtimeFilter: 'All' };
-                        setMasterFiltersDraft(next);
-                        applyMasterFilters(next);
-                        fetchMasterData(true);
+                      <option value="">Low Performers</option>
+                      <option value="today">Today</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="monthly">Monthly</option>
+                      <option value="yearly">Yearly</option>
+                    </select>
+                    <select
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          const next = { ...masterFiltersDraft, searchQuery: '', breakViolationFilter: 'Yes', overtimeFilter: 'All' };
+                          setMasterFiltersDraft(next);
+                          const bounds = getQuickRangeBounds(e.target.value as any);
+                          next.dateStart = bounds.start.toISOString().split('T')[0];
+                          next.dateEnd = bounds.end.toISOString().split('T')[0];
+                          applyMasterFilters(next);
+                          fetchMasterData(true);
+                          e.target.value = '';
+                        }
                       }}
-                      className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase hover:bg-indigo-50 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-                      type="button"
+                      value=""
+                      className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-bold outline-none cursor-pointer border-0 text-slate-600 dark:text-slate-300 appearance-none"
                     >
-                      Break Violations
-                    </button>
-                    <button
-                      onClick={() => {
-                        const next = { ...masterFiltersDraft, searchQuery: '', overtimeFilter: 'Yes' };
-                        setMasterFiltersDraft(next);
-                        applyMasterFilters(next);
-                        fetchMasterData(true);
+                      <option value="">Break Violations</option>
+                      <option value="today">Today</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="monthly">Monthly</option>
+                      <option value="yearly">Yearly</option>
+                    </select>
+                    <select
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          const next = { ...masterFiltersDraft, searchQuery: '', overtimeFilter: 'Yes' };
+                          setMasterFiltersDraft(next);
+                          const bounds = getQuickRangeBounds(e.target.value as any);
+                          next.dateStart = bounds.start.toISOString().split('T')[0];
+                          next.dateEnd = bounds.end.toISOString().split('T')[0];
+                          applyMasterFilters(next);
+                          fetchMasterData(true);
+                          e.target.value = '';
+                        }
                       }}
-                      className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-black uppercase hover:bg-indigo-50 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-                      type="button"
+                      value=""
+                      className="px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[9px] font-bold outline-none cursor-pointer border-0 text-slate-600 dark:text-slate-300 appearance-none"
                     >
-                      Overtime Review
-                    </button>
+                      <option value="">Overtime Review</option>
+                      <option value="today">Today</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="monthly">Monthly</option>
+                      <option value="yearly">Yearly</option>
+                    </select>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => exportDailyPerformanceReport(filteredMasterData)}
-                      className="px-4 py-2 rounded-2xl bg-indigo-600 text-white text-[9px] font-black uppercase hover:bg-indigo-700 transition-colors"
+                      className="px-4 py-2 rounded-2xl bg-indigo-600 text-white text-[9px] font-bold hover:bg-indigo-700 transition-colors"
                       type="button"
                     >
                       Export Current View (CSV)
                     </button>
                     <button
                       onClick={() => setShowMasterAdvancedFilters(v => !v)}
-                      className="px-4 py-2 rounded-2xl bg-slate-900 text-white text-[9px] font-black uppercase hover:bg-slate-800 transition-colors"
+                      className="px-4 py-2 rounded-2xl bg-slate-900 text-white text-[9px] font-bold hover:bg-slate-800 transition-colors"
                       type="button"
                     >
                       {showMasterAdvancedFilters ? 'Hide Advanced Filters' : 'Advanced Filters'}
@@ -3332,14 +3360,14 @@ export default function App() {
                       <div className="flex gap-2 h-[44px]">
                         <button
                           onClick={handleMasterSearchApply}
-                          className="flex-1 px-3 py-3 rounded-2xl bg-indigo-600 text-white text-[10px] font-black uppercase hover:bg-indigo-700 transition-colors"
+                          className="flex-1 px-3 py-3 rounded-2xl bg-indigo-600 text-white text-[10px] font-bold hover:bg-indigo-700 transition-colors"
                           type="button"
                         >
                           Apply
                         </button>
                         <button
                           onClick={resetMasterFilters}
-                          className="flex-1 px-3 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[10px] font-black uppercase hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                          className="flex-1 px-3 py-2 rounded-2xl bg-slate-100 dark:bg-slate-800 text-[10px] font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                           type="button"
                         >
                           Clear
