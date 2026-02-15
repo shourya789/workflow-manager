@@ -127,7 +127,7 @@ async function ensureSchema(client: any) {
       )
     `);
 
-    await tryAddColumn(client, 'users', 'email TEXT UNIQUE');
+    await tryAddColumn(client, 'users', 'email TEXT');
     await tryAddColumn(client, 'users', 'password_hash TEXT');
     await tryAddColumn(client, 'users', 'team_id TEXT REFERENCES teams(id)');
     await tryAddColumn(client, 'users', 'status TEXT');
@@ -142,6 +142,7 @@ async function ensureSchema(client: any) {
       await client.execute(`CREATE INDEX IF NOT EXISTS idx_entries_date ON entries(date)`);
       await client.execute(`CREATE INDEX IF NOT EXISTS idx_entries_status ON entries(status)`);
       await client.execute(`CREATE INDEX IF NOT EXISTS idx_users_emp_id ON users(LOWER(emp_id))`);
+      await client.execute(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(LOWER(email))`);
       await client.execute(`CREATE INDEX IF NOT EXISTS idx_users_team_id ON users(team_id)`);
       await client.execute(`CREATE INDEX IF NOT EXISTS idx_invites_token ON invites(token)`);
       await client.execute(`CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token)`);
