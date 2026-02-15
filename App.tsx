@@ -406,6 +406,13 @@ export default function App() {
     return Array.from({ length: endYear - startYear + 1 }, (_, idx) => startYear + idx);
   }, []);
 
+  const refreshUsers = React.useCallback(() => {
+    fetch('/api/storage?action=getUsers')
+      .then(r => r.json())
+      .then(d => setAllUsers(d.users || []))
+      .catch(e => console.error('Failed to refresh users', e));
+  }, []);
+
   useEffect(() => {
     // Check for invite token in URL
     const urlParams = new URLSearchParams(window.location.search);
@@ -485,6 +492,16 @@ export default function App() {
       })
       .catch(e => console.error('Failed to fetch users', e));
   }, []);
+
+  useEffect(() => {
+    if (!user || user.role !== 'admin') return;
+    if (activeTab !== 'admin-dashboard' && activeTab !== 'users') return;
+    const intervalId = setInterval(() => {
+      refreshUsers();
+      if (activeTab === 'admin-dashboard') fetchMasterData();
+    }, 8000);
+    return () => clearInterval(intervalId);
+  }, [user, activeTab, refreshUsers, fetchMasterData]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
