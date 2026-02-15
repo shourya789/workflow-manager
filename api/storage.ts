@@ -873,6 +873,40 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: 'Unknown format' });
   }
 
+  if (action === 'moveUserToMyTeam' && method === 'POST') {
+    try {
+      const sessionUser = await getSessionUser(req, client);
+      const guard = await requireAdmin(res, sessionUser);
+      if (guard) return guard;
+      
+      const { empId } = req.body || {};
+      if (!empId) return res.status(400).json({ error: 'Employee ID required' });
+      
+      const adminTeamId = sessionUser.team_id;
+      
+      // Update user's team_id
+      const result = await client.execute(
+        'UPDATE users SET team_id = ? WHERE LOWER(emp_id) = LOWER(?)',
+        [adminTeamId, empId]
+      );
+      
+      // Also update their entries
+      await client.execute(
+        'UPDATE entries SET team_id = ? WHERE user_id IN (SELECT id FROM users WHERE LOWER(emp_id) = LOWER(?))',
+        [adminTeamId, empId]
+      );
+      
+      return res.status(200).json({ 
+        success: true, 
+        message: `User ${empId} moved to your team`,
+        newTeamId: adminTeamId 
+      });
+    } catch (e: any) {
+      console.error('Move user error:', e);
+      return res.status(500).json({ error: 'Failed to move user', details: e.message });
+    }
+  }
+
   return logBadRequest(res, 'Unknown action or method', { action, method });
 }
 
