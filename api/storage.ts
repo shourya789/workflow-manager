@@ -199,13 +199,26 @@ async function ensureSchema(client: any) {
       }
     }
     
-    // Migrate old default team data to Aakash's team
-    await client.execute('UPDATE users SET team_id = ? WHERE team_id = ? OR team_id IS NULL OR team_id = ""', ['team_aakash', DEFAULT_TEAM_ID]);
-    await client.execute('UPDATE users SET status = "active" WHERE status IS NULL OR status = ""');
-    await client.execute('UPDATE users SET created_at = ? WHERE created_at IS NULL OR created_at = ""', [createdAt]);
-    await client.execute('UPDATE entries SET team_id = (SELECT team_id FROM users WHERE users.id = entries.user_id) WHERE team_id IS NULL OR team_id = ""');
-    await client.execute('UPDATE entries SET team_id = ? WHERE team_id = ? OR team_id IS NULL OR team_id = ""', ['team_aakash', DEFAULT_TEAM_ID]);
-    await client.execute('UPDATE migrations SET team_id = ? WHERE team_id = ? OR team_id IS NULL OR team_id = ""', ['team_aakash', DEFAULT_TEAM_ID]);
+    // Migrate old default team data to Aakash's team (only run once)
+    const migrationCheck = await client.execute('SELECT id FROM migrations WHERE id = ?', ['migration_to_aakash_team']);
+    if (migrationCheck.rows.length === 0) {
+      console.log('Running one-time migration: moving default team data to Aakash team');
+      const usersMigrated = await client.execute('UPDATE users SET team_id = ? WHERE team_id = ? OR team_id IS NULL OR team_id = ""', ['team_aakash', DEFAULT_TEAM_ID]);
+      await client.execute('UPDATE users SET status = "active" WHERE status IS NULL OR status = ""');
+      await client.execute('UPDATE users SET created_at = ? WHERE created_at IS NULL OR created_at = ""', [createdAt]);
+      await client.execute('UPDATE entries SET team_id = (SELECT team_id FROM users WHERE users.id = entries.user_id) WHERE team_id IS NULL OR team_id = ""');
+      const entriesMigrated = await client.execute('UPDATE entries SET team_id = ? WHERE team_id = ? OR team_id IS NULL OR team_id = ""', ['team_aakash', DEFAULT_TEAM_ID]);
+      await client.execute('UPDATE migrations SET team_id = ? WHERE team_id = ? OR team_id IS NULL OR team_id = ""', ['team_aakash', DEFAULT_TEAM_ID]);
+      
+      // Record that this migration has been completed
+      await client.execute(
+        'INSERT INTO migrations(id, created_at, migrated_users, migrated_entries, mapping, team_id) VALUES(?,?,?,?,?,?)',
+        ['migration_to_aakash_team', createdAt, 0, 0, 'Migrated default team to team_aakash', 'team_aakash']
+      );
+      console.log('Migration to Aakash team completed');
+    } else {
+      console.log('Migration to Aakash team already completed, skipping');
+    }
     
     (global as any).__schemaChecked = true;
     console.log('Database schema verified successfully');
