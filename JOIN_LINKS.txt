@@ -15,16 +15,16 @@
 ========================================
 
 👑 Admin Link 1 (Aakash Pandya Team)
-https://workflow-manager-hazel.vercel.app/invite?token=ADM-AAK-0C3DA7EB
+https://workflow-manager-hazel.vercel.app/invite/ADM-AAK-0C3DA7EB
 
 👑 Admin Link 2 (Arjun Gohil Team)
-https://workflow-manager-hazel.vercel.app/invite?token=ADM-ARJ-A13B2366
+https://workflow-manager-hazel.vercel.app/invite/ADM-ARJ-A13B2366
 
 👑 Admin Link 3 (Ashish Upadhyay Team)
-https://workflow-manager-hazel.vercel.app/invite?token=ADM-ASH-80BEC2DF
+https://workflow-manager-hazel.vercel.app/invite/ADM-ASH-80BEC2DF
 
 👑 Admin Link 4 (Farhin Ansari Team)
-https://workflow-manager-hazel.vercel.app/invite?token=ADM-FAR-4218C5AE
+https://workflow-manager-hazel.vercel.app/invite/ADM-FAR-4218C5AE
 
 ========================================
 ✅ VERIFICATION COMPLETE - ALL TEAMS WORKING

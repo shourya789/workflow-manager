@@ -409,14 +409,20 @@ export default function App() {
   useEffect(() => {
     // Check for invite token in URL
     const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
+    const queryToken = urlParams.get('token');
+    const pathMatch = window.location.pathname.match(/^\/invite\/([^\/]+)$/);
+    const pathToken = pathMatch ? decodeURIComponent(pathMatch[1]) : null;
+    const token = queryToken || pathToken;
     if (token) {
       setInviteToken(token);
       setAuthView('register');
       setAuthRole('user');
       localStorage.setItem('invite_token', token);
-      // Remove token from URL without page reload
-      window.history.replaceState({}, '', window.location.pathname);
+      // Keep token in the path so it survives clients that drop query params
+      const desiredPath = `/invite/${encodeURIComponent(token)}`;
+      if (window.location.pathname !== desiredPath) {
+        window.history.replaceState({}, '', desiredPath);
+      }
     } else {
       const storedToken = localStorage.getItem('invite_token');
       if (storedToken) {

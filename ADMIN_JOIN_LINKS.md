@@ -32,16 +32,16 @@
 ## 📋 Admin Join Links (Permanent & Reusable)
 
 ### 👑 Team 1: Aakash Pandya Team
-**Join Link:** https://workflow-manager-hazel.vercel.app/invite?token=ADM-AAK-0C3DA7EB
+**Join Link:** https://workflow-manager-hazel.vercel.app/invite/ADM-AAK-0C3DA7EB
 
 ### 👑 Team 2: Arjun Gohil Team
-**Join Link:** https://workflow-manager-hazel.vercel.app/invite?token=ADM-ARJ-A13B2366
+**Join Link:** https://workflow-manager-hazel.vercel.app/invite/ADM-ARJ-A13B2366
 
 ### 👑 Team 3: Ashish Upadhyay Team
-**Join Link:** https://workflow-manager-hazel.vercel.app/invite?token=ADM-ASH-80BEC2DF
+**Join Link:** https://workflow-manager-hazel.vercel.app/invite/ADM-ASH-80BEC2DF
 
 ### 👑 Team 4: Farhin Ansari Team
-**Join Link:** https://workflow-manager-hazel.vercel.app/invite?token=ADM-FAR-4218C5AE
+**Join Link:** https://workflow-manager-hazel.vercel.app/invite/ADM-FAR-4218C5AE
 
 **✅ These links never expire and can be reused by multiple users**  
 **✅ Each link automatically assigns users to the corresponding team**
