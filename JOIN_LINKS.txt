@@ -1,0 +1,100 @@
+========================================
+🔐 4 SECURE ADMIN JOIN LINKS
+========================================
+
+✅ DEPLOYED TO: https://workflow-manager-hazel.vercel.app
+
+========================================
+👑 ADMIN JOIN LINKS (PERMANENT)
+========================================
+
+👑 Admin Link 1 (Aakash Pandya Team)
+https://workflow-manager-hazel.vercel.app/invite?token=ADM-AAK-0C3DA7EB
+
+👑 Admin Link 2 (Arjun Gohil Team)
+https://workflow-manager-hazel.vercel.app/invite?token=ADM-ARJ-A13B2366
+
+👑 Admin Link 3 (Ashish Upadhyay Team)
+https://workflow-manager-hazel.vercel.app/invite?token=ADM-ASH-80BEC2DF
+
+👑 Admin Link 4 (Farrin Ansari Team)
+https://workflow-manager-hazel.vercel.app/invite?token=ADM-FAR-4218C5AE
+
+========================================
+🧑‍💼 ADMIN LOGIN CREDENTIALS
+========================================
+
+🧑‍💼 1) Aakash Pandya
+Email / Login ID: akash.pandya@petpooja.com
+Password: Ak@2026#AP
+
+🧑‍💼 2) Ashish Upadhyay
+Email / Login ID: ashish.upadhyay@petpooja.com
+Password: As@2026#AU
+
+🧑‍💼 3) Farrin Ansari
+Email / Login ID: farrin.ansari@petpooja.com
+Password: Fa@2026#FA
+
+🧑‍💼 4) Arjun Gohil
+Email / Login ID: arjun.gohil@petpooja.com
+Password: Ar@2026#AG
+
+========================================
+📋 HOW IT WORKS
+========================================
+
+✅ ADMIN LOGIN:
+   - Go to https://workflow-manager-hazel.vercel.app
+   - Select "Admin" role
+   - Enter email and password from above
+   - All admins login at the same URL
+   - Each admin can only see their own team's data
+
+✅ USER REGISTRATION:
+   - Share your team's join link with team members
+   - Users click the link and fill out registration form
+   - Users are automatically assigned to your team
+   - Each team can have up to 35 users
+
+✅ DATA ISOLATION:
+   - All 4 teams are completely isolated
+   - Data will NOT merge between teams
+   - Each admin manages their own team independently
+   - Team assignment is based on which join link was used
+
+========================================
+🚀 QUICK START GUIDE
+========================================
+
+1. LOGIN AS ADMIN:
+   - Visit: https://workflow-manager-hazel.vercel.app
+   - Select "Admin" role
+   - Use your email + password from above
+
+2. SHARE JOIN LINK:
+   - Copy your team's join link from above
+   - Share it with your team members via email/chat
+   
+3. TEAM MEMBERS JOIN:
+   - Team members click the join link
+   - Fill out: Employee ID, Name, Email, Password
+   - Automatically added to your team
+
+4. MANAGE TEAM:
+   - View all team members in admin dashboard
+   - Track performance, approve entries
+   - Export reports for your team only
+
+========================================
+✅ VERIFICATION
+========================================
+
+✓ 4 teams created with unique admins
+✓ 4 permanent join tokens generated
+✓ Email-based admin login configured
+✓ Team isolation enforced at database level
+✓ Deployed to Vercel successfully
+✓ All endpoints tested and working
+
+========================================

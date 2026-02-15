@@ -159,13 +159,6 @@ async function ensureSchema(client: any) {
       [DEFAULT_TEAM_ID, DEFAULT_TEAM_NAME, createdAt]
     );
 
-    await client.execute('UPDATE users SET team_id = ? WHERE team_id IS NULL OR team_id = ""', [DEFAULT_TEAM_ID]);
-    await client.execute('UPDATE users SET status = "active" WHERE status IS NULL OR status = ""');
-    await client.execute('UPDATE users SET created_at = ? WHERE created_at IS NULL OR created_at = ""', [createdAt]);
-    await client.execute('UPDATE entries SET team_id = (SELECT team_id FROM users WHERE users.id = entries.user_id) WHERE team_id IS NULL OR team_id = ""');
-    await client.execute('UPDATE entries SET team_id = ? WHERE team_id IS NULL OR team_id = ""', [DEFAULT_TEAM_ID]);
-    await client.execute('UPDATE migrations SET team_id = ? WHERE team_id IS NULL OR team_id = ""', [DEFAULT_TEAM_ID]);
-    
     // Seed 4 teams with admin accounts and permanent join tokens
     const adminAccounts = [
       { id: 'team_aakash', name: 'Aakash Pandya Team', email: 'akash.pandya@petpooja.com', password: 'Ak@2026#AP', empId: 'AAKASH' },
@@ -205,6 +198,14 @@ async function ensureSchema(client: any) {
         console.log(`Created permanent join token for team: ${account.id}`);
       }
     }
+    
+    // Migrate old default team data to Aakash's team
+    await client.execute('UPDATE users SET team_id = ? WHERE team_id = ? OR team_id IS NULL OR team_id = ""', ['team_aakash', DEFAULT_TEAM_ID]);
+    await client.execute('UPDATE users SET status = "active" WHERE status IS NULL OR status = ""');
+    await client.execute('UPDATE users SET created_at = ? WHERE created_at IS NULL OR created_at = ""', [createdAt]);
+    await client.execute('UPDATE entries SET team_id = (SELECT team_id FROM users WHERE users.id = entries.user_id) WHERE team_id IS NULL OR team_id = ""');
+    await client.execute('UPDATE entries SET team_id = ? WHERE team_id = ? OR team_id IS NULL OR team_id = ""', ['team_aakash', DEFAULT_TEAM_ID]);
+    await client.execute('UPDATE migrations SET team_id = ? WHERE team_id = ? OR team_id IS NULL OR team_id = ""', ['team_aakash', DEFAULT_TEAM_ID]);
     
     (global as any).__schemaChecked = true;
     console.log('Database schema verified successfully');
@@ -361,6 +362,7 @@ async function acceptInviteAndCreateUser(client: any, token: string, payload: an
   const password = payload.password || '';
   const passwordHash = password ? hashPassword(password) : null;
 
+  // Check uniqueness globally for empId and email
   const empExists = await client.execute('SELECT id FROM users WHERE LOWER(emp_id) = LOWER(?)', [empId]);
   if (empExists.rows.length > 0) return { error: 'Employee ID already exists' };
   if (email) {
@@ -581,7 +583,7 @@ export default async function handler(req: any, res: any) {
         teamId: row.team_id,
         teamName: row.team_name,
         token: row.token,
-        joinUrl: `${baseUrl}/join?token=${encodeURIComponent(row.token)}`
+        joinUrl: `${baseUrl}/invite?token=${encodeURIComponent(row.token)}`
       }));
       return res.status(200).json({ tokens });
     } catch (e: any) {
