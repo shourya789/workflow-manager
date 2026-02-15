@@ -163,7 +163,7 @@ async function ensureSchema(client: any) {
     const adminAccounts = [
       { id: 'team_aakash', name: 'Aakash Pandya Team', email: 'akash.pandya@petpooja.com', password: 'Ak@2026#AP', empId: 'AAKASH', token: 'ADM-AAK-0C3DA7EB' },
       { id: 'team_ashish', name: 'Ashish Upadhyay Team', email: 'ashish.upadhyay@petpooja.com', password: 'As@2026#AU', empId: 'ASHISH', token: 'ADM-ASH-80BEC2DF' },
-      { id: 'team_farhin', name: 'Farhin Ansari Team', email: 'farhin.ansari@petpooja.com', password: 'Fa@2026#FA', empId: 'FARHIN', token: 'ADM-FAR-4218C5AE' },
+      { id: 'team_farrin', name: 'Farhin Ansari Team', email: 'farhin.ansari@petpooja.com', password: 'Fa@2026#FA', empId: 'FARHIN', token: 'ADM-FAR-4218C5AE' },
       { id: 'team_arjun', name: 'Arjun Gohil Team', email: 'arjun.gohil@petpooja.com', password: 'Ar@2026#AG', empId: 'ARJUN', token: 'ADM-ARJ-A13B2366' }
     ];
 
@@ -227,13 +227,12 @@ async function ensureSchema(client: any) {
     const farhinMigrationCheck = await client.execute('SELECT id FROM migrations WHERE id = ?', ['migration_farrin_to_farhin']);
     if (farhinMigrationCheck.rows.length === 0) {
       console.log('Running one-time migration: renaming team_farrin to team_farhin');
-      await client.execute('UPDATE teams SET id = ?, name = ? WHERE id = ?', ['team_farhin', 'Farhin Ansari Team', 'team_farrin']);
-      await client.execute('UPDATE users SET team_id = ? WHERE team_id = ?', ['team_farhin', 'team_farrin']);
-      await client.execute('UPDATE users SET email = ?, emp_id = ? WHERE email = ?', ['farhin.ansari@petpooja.com', 'FARHIN', 'farrin.ansari@petpooja.com']);
-      await client.execute('UPDATE entries SET team_id = ? WHERE team_id = ?', ['team_farhin', 'team_farrin']);
-      await client.execute('UPDATE invites SET team_id = ? WHERE team_id = ?', ['team_farhin', 'team_farrin']);
+      // Can't update primary key, so just update the name
+      await client.execute('UPDATE teams SET name = ? WHERE id = ?', ['Farhin Ansari Team', 'team_farrin']);
+      // Update email for the admin user
+      await client.execute('UPDATE users SET email = ?, emp_id = ?, name = ? WHERE email = ?', ['farhin.ansari@petpooja.com', 'FARHIN', 'Farhin Ansari', 'farrin.ansari@petpooja.com']);
       await client.execute('INSERT INTO migrations(id, created_at, migrated_users, migrated_entries, mapping, team_id) VALUES(?,?,?,?,?,?)',
-        ['migration_farrin_to_farhin', createdAt, 0, 0, JSON.stringify({}), 'team_farhin']);
+        ['migration_farrin_to_farhin', createdAt, 0, 0, JSON.stringify({}), 'team_farrin']);
       console.log('Farhin spelling migration completed');
     }
     
