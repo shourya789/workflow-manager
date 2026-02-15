@@ -523,6 +523,10 @@ export default function App() {
           const found = body.user;
           setUser(found);
           localStorage.setItem('current_session', JSON.stringify(found));
+          fetch('/api/storage?action=getUsers')
+            .then(r => r.json())
+            .then(d => setAllUsers(d.users || []))
+            .catch(e => console.error('Failed to refresh users', e));
           if (found.role === 'admin') { setActiveTab('admin-dashboard'); fetchMasterData(); }
           else setActiveTab('calc');
         } else {
@@ -542,6 +546,7 @@ export default function App() {
   };
 
   const logout = () => {
+    fetch('/api/storage?action=logout', { method: 'POST' }).catch(() => undefined);
     localStorage.removeItem('current_session');
     setUser(null);
     setAdminViewingUserId(null);
