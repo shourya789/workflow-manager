@@ -428,20 +428,20 @@ export default async function handler(req: any, res: any) {
       console.log('Auth attempt:', { empId, role });
 
       // allow default admin login (case insensitive)
-      if (role === 'admin' && empId.toLowerCase() === 'team' && password.toLowerCase() === 'pooja852') {
+      if (role === 'admin' && empId.toLowerCase() === 'aakash' && password === 'Pandya@2026') {
         console.log('Admin login attempt with default credentials');
         // ensure admin exists in DB
-        const found = await client.execute('SELECT id, emp_id, name, role, password, team_id, password_hash FROM users WHERE emp_id = ?', ['TEAM']);
+        const found = await client.execute('SELECT id, emp_id, name, role, password, team_id, password_hash FROM users WHERE emp_id = ?', ['AAKASH']);
         if (found.rows.length === 0) {
           console.log('Creating default admin user');
           const id = 'admin';
-          const passwordHash = hashPassword('Pooja852');
+          const passwordHash = hashPassword('Pandya@2026');
           await client.execute(
             'INSERT INTO users(id, emp_id, name, email, password, password_hash, role, team_id, status, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)',
-            [id, 'TEAM', 'TEAM', null, 'Pooja852', passwordHash, 'admin', DEFAULT_TEAM_ID, 'active', nowIso()]
+            [id, 'AAKASH', 'Aakash Pandya', null, 'Pandya@2026', passwordHash, 'admin', DEFAULT_TEAM_ID, 'active', nowIso()]
           );
         }
-        const row = (await client.execute('SELECT * FROM users WHERE emp_id = ?', ['TEAM'])).rows[0];
+        const row = (await client.execute('SELECT * FROM users WHERE emp_id = ?', ['AAKASH'])).rows[0];
         await createSessionForUser(res, client, row.id as string);
         const user = mapUserRow(row);
         console.log('Admin login successful');
