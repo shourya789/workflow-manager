@@ -229,8 +229,11 @@ async function ensureSchema(client: any) {
       console.log('Running one-time migration: renaming team_farrin to team_farhin');
       // Can't update primary key, so just update the name
       await client.execute('UPDATE teams SET name = ? WHERE id = ?', ['Farhin Ansari Team', 'team_farrin']);
-      // Update email for the admin user
-      await client.execute('UPDATE users SET email = ?, emp_id = ?, name = ? WHERE email = ?', ['farhin.ansari@petpooja.com', 'FARHIN', 'Farhin Ansari', 'farrin.ansari@petpooja.com']);
+      // Update email for the admin user (only if farhin.ansari doesn't already exist)
+      const farhinExists = await client.execute('SELECT id FROM users WHERE email = ?', ['farhin.ansari@petpooja.com']);
+      if (farhinExists.rows.length === 0) {
+        await client.execute('UPDATE users SET email = ?, emp_id = ?, name = ? WHERE email = ?', ['farhin.ansari@petpooja.com', 'FARHIN', 'Farhin Ansari', 'farrin.ansari@petpooja.com']);
+      }
       await client.execute('INSERT INTO migrations(id, created_at, migrated_users, migrated_entries, mapping, team_id) VALUES(?,?,?,?,?,?)',
         ['migration_farrin_to_farhin', createdAt, 0, 0, JSON.stringify({}), 'team_farrin']);
       console.log('Farhin spelling migration completed');
