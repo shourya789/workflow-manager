@@ -1218,6 +1218,8 @@ export default function App() {
   const userKpiData = useMemo(() => {
     const inboundEntries = userRangeEntries.filter(entry => (entry.inbound || 0) > 0);
     const outboundEntries = userRangeEntries.filter(entry => (entry.outbound || 0) > 0);
+    const inboundTotal = userRangeEntries.reduce((acc, entry) => acc + (entry.inbound || 0), 0);
+    const outboundTotal = userRangeEntries.reduce((acc, entry) => acc + (entry.outbound || 0), 0);
     const halfDayEntries = userRangeEntries.filter(entry => entry.shiftType === 'Half Day' && !entry.emergencyOt);
     const fullDayEntries = userRangeEntries.filter(entry => entry.shiftType === 'Full Day' && !entry.emergencyOt);
     const underShiftFullDayEntries = userRangeEntries.filter(entry => entry.shiftType === 'Full Day' && !entry.emergencyOt && timeToSeconds(entry.currentLogin || '00:00:00') < 9 * 3600);
@@ -1259,6 +1261,8 @@ export default function App() {
     return {
       inboundEntries,
       outboundEntries,
+      inboundTotal,
+      outboundTotal,
       halfDayEntries,
       fullDayEntries,
       underShiftFullDayEntries,
@@ -2544,8 +2548,8 @@ export default function App() {
 
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
                     {[
-                      { label: 'Inbound Calls', rows: userKpiData.inboundEntries, valueClass: 'text-indigo-600' },
-                      { label: 'Outbound Calls', rows: userKpiData.outboundEntries, valueClass: 'text-emerald-600' },
+                      { label: 'Inbound Calls', rows: userKpiData.inboundEntries, value: userKpiData.inboundTotal, valueClass: 'text-indigo-600' },
+                      { label: 'Outbound Calls', rows: userKpiData.outboundEntries, value: userKpiData.outboundTotal, valueClass: 'text-emerald-600' },
                       { label: 'Half Days', rows: userKpiData.halfDayEntries, valueClass: 'text-amber-600' },
                       { label: 'Full Days', rows: userKpiData.fullDayEntries, valueClass: 'text-slate-900 dark:text-white' },
                       { label: 'Under Shift Full Day', rows: userKpiData.underShiftFullDayEntries, valueClass: 'text-rose-600' },
@@ -2565,7 +2569,7 @@ export default function App() {
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">{card.label}</p>
-                            <div className={`text-2xl font-black mt-2 ${card.valueClass}`}>{card.rows.length}</div>
+                            <div className={`text-2xl font-black mt-2 ${card.valueClass}`}>{card.value ?? card.rows.length}</div>
                           </div>
                           <button
                             onClick={(event) => {
@@ -2812,67 +2816,67 @@ export default function App() {
 
               <div className="dashboard bg-white dark:bg-slate-900 p-8 rounded-[3rem] shadow-sm border dark:border-slate-800">
                 <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
-                  <button onClick={openInboundKpi} className="p-4 rounded-2xl bg-indigo-50 dark:bg-slate-950 border border-indigo-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Inbound Today</p>
-                    <div className="text-2xl font-black text-indigo-600 mt-2">{rangeKpi.inboundTotal}</div>
+                  <button onClick={openInboundKpi} className="p-4 rounded-2xl bg-indigo-50 dark:bg-slate-950 border border-indigo-200 dark:border-slate-800 text-left shadow-sm hover:shadow-md transition-all">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300">Inbound Today</p>
+                    <div className="text-3xl font-black text-indigo-700 dark:text-indigo-400 mt-2">{rangeKpi.inboundTotal}</div>
                   </button>
-                  <button onClick={openOutboundKpi} className="p-4 rounded-2xl bg-emerald-50 dark:bg-slate-950 border border-emerald-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Outbound Today</p>
-                    <div className="text-2xl font-black text-emerald-600 mt-2">{rangeKpi.outboundTotal}</div>
+                  <button onClick={openOutboundKpi} className="p-4 rounded-2xl bg-emerald-50 dark:bg-slate-950 border border-emerald-200 dark:border-slate-800 text-left shadow-sm hover:shadow-md transition-all">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300">Outbound Today</p>
+                    <div className="text-3xl font-black text-emerald-700 dark:text-emerald-400 mt-2">{rangeKpi.outboundTotal}</div>
                   </button>
-                  <button onClick={openHalfDayKpi} className="p-4 rounded-2xl bg-amber-50 dark:bg-slate-950 border border-amber-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Half Day Today</p>
-                    <div className="text-2xl font-black text-amber-600 mt-2">{rangeKpi.halfDayCount}</div>
+                  <button onClick={openHalfDayKpi} className="p-4 rounded-2xl bg-amber-50 dark:bg-slate-950 border border-amber-200 dark:border-slate-800 text-left shadow-sm hover:shadow-md transition-all">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300">Half Day Today</p>
+                    <div className="text-3xl font-black text-amber-700 dark:text-amber-400 mt-2">{rangeKpi.halfDayCount}</div>
                   </button>
-                  <button onClick={openFullDayKpi} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Full Day Today</p>
-                    <div className="text-2xl font-black text-slate-900 dark:text-white mt-2">{rangeKpi.fullDayCount}</div>
+                  <button onClick={openFullDayKpi} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-left shadow-sm hover:shadow-md transition-all">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300">Full Day Today</p>
+                    <div className="text-3xl font-black text-slate-900 dark:text-white mt-2">{rangeKpi.fullDayCount}</div>
                   </button>
-                  <button onClick={openUnderShiftFullDayKpi} className="p-4 rounded-2xl bg-rose-50 dark:bg-slate-950 border border-rose-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Under Shift Full Day</p>
-                    <div className="text-2xl font-black text-rose-600 mt-2">{rangeKpi.underShiftFullDay}</div>
+                  <button onClick={openUnderShiftFullDayKpi} className="p-4 rounded-2xl bg-rose-50 dark:bg-slate-950 border border-rose-200 dark:border-slate-800 text-left shadow-sm hover:shadow-md transition-all">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300">Under Shift Full Day</p>
+                    <div className="text-3xl font-black text-rose-700 dark:text-rose-400 mt-2">{rangeKpi.underShiftFullDay}</div>
                   </button>
-                  <button onClick={openUnderShiftHalfDayKpi} className="p-4 rounded-2xl bg-orange-50 dark:bg-slate-950 border border-orange-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Under Shift Half Day</p>
-                    <div className="text-2xl font-black text-orange-600 mt-2">{rangeKpi.underShiftHalfDay}</div>
+                  <button onClick={openUnderShiftHalfDayKpi} className="p-4 rounded-2xl bg-orange-50 dark:bg-slate-950 border border-orange-200 dark:border-slate-800 text-left shadow-sm hover:shadow-md transition-all">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300">Under Shift Half Day</p>
+                    <div className="text-3xl font-black text-orange-700 dark:text-orange-400 mt-2">{rangeKpi.underShiftHalfDay}</div>
                   </button>
                 </div>
 
                 <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
-                  <button onClick={openTotalLoginUsers} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Total Login Users</p>
-                    <div className="text-2xl font-black text-indigo-600 mt-2">{overviewDerived.stats.totalUsers}</div>
+                  <button onClick={openTotalLoginUsers} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-left shadow-sm hover:shadow-md transition-all">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300">Total Login Users</p>
+                    <div className="text-3xl font-black text-indigo-700 dark:text-indigo-400 mt-2">{overviewDerived.stats.totalUsers}</div>
                   </button>
-                  <button onClick={openNeedsAttentionKpi} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Needs Attention</p>
-                    <div className="text-2xl font-black text-rose-600 mt-2">{overviewDerived.stats.needsUsers}</div>
+                  <button onClick={openNeedsAttentionKpi} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-left shadow-sm hover:shadow-md transition-all">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300">Needs Attention</p>
+                    <div className="text-3xl font-black text-rose-700 dark:text-rose-400 mt-2">{overviewDerived.stats.needsUsers}</div>
                   </button>
-                  <button onClick={openTopPerformersKpi} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Top Performers</p>
-                    <div className="text-2xl font-black text-emerald-600 mt-2">{overviewDerived.stats.topUsers}</div>
+                  <button onClick={openTopPerformersKpi} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-left shadow-sm hover:shadow-md transition-all">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300">Top Performers</p>
+                    <div className="text-3xl font-black text-emerald-700 dark:text-emerald-400 mt-2">{overviewDerived.stats.topUsers}</div>
                   </button>
-                  <button onClick={openPendingOtKpi} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">OT Requests Pending</p>
-                    <div className="text-2xl font-black text-amber-600 mt-2">{overviewDerived.stats.pendingOtCount}</div>
+                  <button onClick={openPendingOtKpi} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-left shadow-sm hover:shadow-md transition-all">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300">OT Requests Pending</p>
+                    <div className="text-3xl font-black text-amber-700 dark:text-amber-400 mt-2">{overviewDerived.stats.pendingOtCount}</div>
                   </button>
-                  <button onClick={openTotalOtKpi} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Total OTs</p>
-                    <div className="text-2xl font-black text-amber-600 mt-2">{rangeKpi.otCount}</div>
+                  <button onClick={openTotalOtKpi} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-left shadow-sm hover:shadow-md transition-all">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300">Total OTs</p>
+                    <div className="text-3xl font-black text-amber-700 dark:text-amber-400 mt-2">{rangeKpi.otCount}</div>
                   </button>
-                  <button onClick={openBreakExceededKpi} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-left hover:shadow-md transition-all">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Break Exceeded Users</p>
-                    <div className="text-2xl font-black text-rose-600 mt-2">{overviewDerived.stats.breakExceededUsers}</div>
+                  <button onClick={openBreakExceededKpi} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-left shadow-sm hover:shadow-md transition-all">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-300">Break Exceeded Users</p>
+                    <div className="text-3xl font-black text-rose-700 dark:text-rose-400 mt-2">{overviewDerived.stats.breakExceededUsers}</div>
                   </button>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
-                  <div className="p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                  <div className="p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 shadow-sm">
                     <div className="flex items-center justify-between mb-4">
                       <p className="text-[9px] font-black uppercase tracking-widest text-rose-500">Needs Attention</p>
                       <button onClick={openNeedsAttention} className="text-[9px] font-black uppercase text-rose-600">View All</button>
                     </div>
                     {overviewDerived.needsAttention.length === 0 ? (
-                      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">No records found</div>
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">No records found</div>
                     ) : (
                       <div className="space-y-3">
                         {overviewDerived.needsAttention.slice(0, 5).map(item => {
@@ -2883,11 +2887,11 @@ export default function App() {
                             <div key={item.entry.id} className="flex items-center justify-between">
                               <div>
                                 <div className="text-xs font-black uppercase dark:text-white">{item.entry.userName || item.entry.userId}</div>
-                                <div className="text-[9px] text-slate-400 font-bold uppercase">{new Date(item.entry.date).toLocaleDateString()}</div>
+                                <div className="text-[9px] text-slate-500 font-bold uppercase">{new Date(item.entry.date).toLocaleDateString()}</div>
                               </div>
                               <div className="text-right">
                                 <div className="text-xs font-black text-rose-600 font-mono">{secondsToTime(item.breakSec)}</div>
-                                <div className="text-[9px] text-slate-400 font-bold">Login {secondsToTime(item.loginSec)}</div>
+                                <div className="text-[9px] text-slate-500 font-bold">Login {secondsToTime(item.loginSec)}</div>
                               </div>
                               <span className="px-2 py-1 rounded-full text-[8px] font-black uppercase bg-rose-100 text-rose-600">{reasonText}</span>
                             </div>
@@ -2897,24 +2901,24 @@ export default function App() {
                     )}
                   </div>
 
-                  <div className="p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                  <div className="p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 shadow-sm">
                     <div className="flex items-center justify-between mb-4">
                       <p className="text-[9px] font-black uppercase tracking-widest text-emerald-500">Top Performers</p>
                       <button onClick={openTopPerformers} className="text-[9px] font-black uppercase text-emerald-600">View All</button>
                     </div>
                     {overviewDerived.topPerformers.length === 0 ? (
-                      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">No records found</div>
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">No records found</div>
                     ) : (
                       <div className="space-y-3">
                         {overviewDerived.topPerformers.slice(0, 5).map(item => (
                           <div key={item.entry.id} className="flex items-center justify-between">
                             <div>
                               <div className="text-xs font-black uppercase dark:text-white">{item.entry.userName || item.entry.userId}</div>
-                              <div className="text-[9px] text-slate-400 font-bold uppercase">Inbound {item.entry.inbound || 0} · Outbound {item.entry.outbound || 0}</div>
+                              <div className="text-[9px] text-slate-500 font-bold uppercase">Inbound {item.entry.inbound || 0} · Outbound {item.entry.outbound || 0}</div>
                             </div>
                             <div className="text-right">
                               <div className="text-xs font-black text-emerald-600 font-mono">{secondsToTime(item.breakSec)}</div>
-                              <div className="text-[9px] text-slate-400 font-bold">Break Time</div>
+                              <div className="text-[9px] text-slate-500 font-bold">Break Time</div>
                             </div>
                           </div>
                         ))}
@@ -2922,24 +2926,24 @@ export default function App() {
                     )}
                   </div>
 
-                  <div className="p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                  <div className="p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 shadow-sm">
                     <div className="flex items-center justify-between mb-4">
                       <p className="text-[9px] font-black uppercase tracking-widest text-amber-500">Pending OT</p>
                       <button onClick={openPendingOt} className="text-[9px] font-black uppercase text-amber-600">View All</button>
                     </div>
                     {overviewDerived.pendingOt.length === 0 ? (
-                      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">No records found</div>
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">No records found</div>
                     ) : (
                       <div className="space-y-3">
                         {overviewDerived.pendingOt.slice(0, 5).map(item => (
                           <div key={item.entry.id} className="flex items-center justify-between">
                             <div>
                               <div className="text-xs font-black uppercase dark:text-white">{item.entry.userName || item.entry.userId}</div>
-                              <div className="text-[9px] text-slate-400 font-bold uppercase">{new Date(item.entry.date).toLocaleDateString()} {new Date(item.entry.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                              <div className="text-[9px] text-slate-500 font-bold uppercase">{new Date(item.entry.date).toLocaleDateString()} {new Date(item.entry.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                             </div>
                             <div className="text-right">
                               <div className="text-xs font-black text-amber-600 font-mono">{secondsToTime(Math.max(0, item.loginSec - item.shiftBase))}</div>
-                              <div className="text-[9px] text-slate-400 font-bold">OT Requested</div>
+                              <div className="text-[9px] text-slate-500 font-bold">OT Requested</div>
                             </div>
                           </div>
                         ))}
