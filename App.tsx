@@ -158,6 +158,8 @@ export default function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [shiftType, setShiftType] = useState<ShiftType>('Full Day');
   const [emergencyOt, setEmergencyOt] = useState(false);
+  const [extensionOt, setExtensionOt] = useState(false); // Auto-calculated OT when login extends beyond shift base
+  const [extensionOtHours, setExtensionOtHours] = useState(0); // Hours extended beyond shift base
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear());
   const [showOTModal, setShowOTModal] = useState(false);
@@ -684,26 +686,26 @@ export default function App() {
 
   const loginSec = timeToSeconds(formData.currentLogin);
   const shiftBase = shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
-  const otEligibilitySec = 4.5 * 3600;
-  const extraSec = Math.max(0, loginSec - shiftBase);
+  const extensionSec = Math.max(0, loginSec - shiftBase); // Hours extended beyond shift base = EXTENSION OT
   const emergencyOtEligible = emergencyOt && loginSec >= 3600;
-  const otTrigger = loginSec >= otEligibilitySec && extraSec > 3600;
 
-  // Show OT hours info when shift type changes (does NOT auto-enable checkbox)
+  // Auto-detect extension OT (when login extends beyond shift base)
+  useEffect(() => {
+    if (extensionSec > 0) {
+      const otHours = extensionSec / 3600;
+      setExtensionOt(true);
+      setExtensionOtHours(otHours);
+    } else {
+      setExtensionOt(false);
+      setExtensionOtHours(0);
+    }
+  }, [extensionSec]);
+
+  // Show OT hours info when shift type changes
   const handleShiftTypeChange = (newShiftType: ShiftType) => {
     setShiftType(newShiftType);
-    const loginSeconds = timeToSeconds(formData.currentLogin);
-    
-    // Show available OT hours as reference info only - user must manually check box
-    if (newShiftType === 'Half Day' && loginSeconds > 4.5 * 3600) {
-      const otHours = (loginSeconds - 4.5 * 3600) / 3600;
-      pushToast(`Half Day OT available: ${otHours.toFixed(2)} hours (check box if applying emergency OT for non-working day)`, 'info');
-    } else if (newShiftType === 'Full Day' && loginSeconds > 9 * 3600) {
-      const otHours = (loginSeconds - 9 * 3600) / 3600;
-      pushToast(`Full Day OT available: ${otHours.toFixed(2)} hours (check box if applying emergency OT for non-working day)`, 'info');
-    }
   };
-  const otSec = emergencyOtEligible ? loginSec : otTrigger ? extraSec : 0;
+  const otSec = extensionOt ? extensionSec : 0;
 
   const loginRemainingSec = Math.max(0, shiftBase - loginSec);
   const totalBreakSec = timeToSeconds(formData.pause) + timeToSeconds(formData.dispo) + timeToSeconds(formData.dead);
@@ -714,7 +716,7 @@ export default function App() {
   const breakExceeded = totalBreakSec > breakLimit;
   const reasonRequired = user?.role === 'user' && (totalBreakSec > 2 * 3600 || loginSec < shiftBase);
 
-  const commitRecord = async (applyForOT?: boolean) => {
+  const commitRecord = async (applyExtensionOt?: boolean, applyEmergencyOt?: boolean) => {
     if (!user) return;
     const allZero = [
       formData.pause,
@@ -756,18 +758,30 @@ export default function App() {
       return;
     }
 
-    if (applyForOT && !formData.reason.trim()) {
-      pushToast('Please add a justification before requesting OT.', 'warning');
+    // Reason mandatory for BOTH extension OT and emergency OT
+    if ((applyExtensionOt || applyEmergencyOt) && !formData.reason.trim()) {
+      pushToast('Please add a justification/reason before applying OT.', 'warning');
       return;
     }
 
     const targetUserId = adminViewingUserId || user.id;
-    const effectiveEmergencyOt = emergencyOt && !!applyForOT;
-    const calculatedStatus: EntryStatus = (applyForOT) ? 'Pending' : 'N/A';
+    const finalExtensionOt = applyExtensionOt === true ? true : false;
+    const finalEmergencyOt = applyEmergencyOt === true ? true : false;
+    const calculatedStatus: EntryStatus = (applyExtensionOt || applyEmergencyOt) ? 'Pending' : 'N/A';
+
+    // Build entry object with both OT fields
+    const entryData = {
+      ...formData,
+      shiftType,
+      status: calculatedStatus,
+      extensionOt: finalExtensionOt,
+      extensionOtHours: finalExtensionOt ? extensionOtHours : 0,
+      emergencyOt: finalEmergencyOt
+    };
 
     if (editingId) {
       // update on server
-      const payload = { userId: targetUserId, entryId: editingId, entry: { ...formData, shiftType, status: calculatedStatus, emergencyOt: effectiveEmergencyOt } };
+      const payload = { userId: targetUserId, entryId: editingId, entry: entryData };
       try {
         const r = await fetch('/api/storage?action=updateEntry', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         const b = await r.json();
@@ -782,10 +796,7 @@ export default function App() {
         userId: viewingUser?.empId || '',
         userName: viewingUser?.name,
         date: new Date().toISOString(),
-        shiftType,
-        ...formData,
-        status: calculatedStatus,
-        emergencyOt: effectiveEmergencyOt
+        ...entryData
       };
       try {
         const r = await fetch('/api/storage?action=addEntry', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: targetUserId, entry: newEntry }) });
@@ -794,17 +805,29 @@ export default function App() {
         setEntries(b.entries || []);
         if (user?.role === 'admin') fetchMasterData();
         if (isNewUserEntry) setLastCommittedSignature(parsedSignature);
+        if (finalExtensionOt) pushToast(`Extension OT applied: ${extensionOtHours.toFixed(2)} hours - Entry logged to audit`, 'success');
+        if (finalEmergencyOt) pushToast(`Emergency OT applied - Entry logged to audit`, 'success');
       } catch (e: any) { pushToast(`Failed to add entry: ${e.message}`, 'error'); }
     }
     setFormData(INITIAL_FORM_STATE);
     setShowOTModal(false);
     setEmergencyOt(false);
+    setExtensionOt(false);
+    setExtensionOtHours(0);
     setIsDataExtracted(false);
     setIsReadOnlyInspection(false);
   };
 
   const saveToHistory = () => {
-    if (emergencyOt) {
+    // Check if extension OT is detected
+    if (extensionOt && extensionOtHours > 0) {
+      if (!showOTModal) {
+        setShowOTModal(true);
+        return;
+      }
+    }
+    // If emergency OT checkbox is manually checked
+    else if (emergencyOt) {
       if (loginSec < 3600) {
         pushToast('OT requires at least 1 hour of login time.', 'warning');
         return;
@@ -813,9 +836,8 @@ export default function App() {
         setShowOTModal(true);
         return;
       }
-    } else if (otTrigger && !showOTModal) {
-      setShowOTModal(true);
-      return;
+    }
+    commitRecord(false, false);
     }
     commitRecord(false);
   };
@@ -2165,12 +2187,30 @@ export default function App() {
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl p-10 space-y-6 animate-in zoom-in duration-300">
             <div className="flex flex-col items-center text-center">
               <div className="p-4 bg-amber-500/10 rounded-3xl text-amber-500 mb-6"><AlertCircleIcon size={40} /></div>
-              <h3 className="text-xl font-black dark:text-white uppercase tracking-tight">Overtime Threshold</h3>
-              <p className="text-xs text-slate-500 mt-2">Duration <strong>{formData.currentLogin}</strong> exceeds base shift requirements.</p>
+              {extensionOt && extensionOtHours > 0 ? (
+                <>
+                  <h3 className="text-xl font-black dark:text-white uppercase tracking-tight">OT Detected</h3>
+                  <p className="text-xs text-slate-500 mt-2">Login duration <strong>{formData.currentLogin}</strong> extends <strong>{extensionOtHours.toFixed(2)} hours</strong> beyond {shiftType} shift base ({shiftType === 'Full Day' ? '9 hrs' : '4.5 hrs'}).</p>
+                </>
+              ) : (
+                <>
+                  <h3 className="text-xl font-black dark:text-white uppercase tracking-tight">Emergency OT</h3>
+                  <p className="text-xs text-slate-500 mt-2">Confirm Emergency OT for non-working day work ({formData.currentLogin} logged).</p>
+                </>
+              )}
             </div>
             <div className="space-y-3">
-              <button onClick={() => commitRecord(true)} className="w-full py-4 bg-amber-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl">Apply for OT Approval</button>
-              <button onClick={() => commitRecord(false)} className="w-full py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-2xl font-black text-xs uppercase tracking-widest">Discard OT Claim</button>
+              {extensionOt && extensionOtHours > 0 ? (
+                <>
+                  <button onClick={() => commitRecord(true, emergencyOt ? true : false)} className="w-full py-4 bg-amber-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl">Apply OT Approval</button>
+                  <button onClick={() => commitRecord(false, emergencyOt ? true : false)} className="w-full py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-2xl font-black text-xs uppercase tracking-widest">Discard OT Claim</button>
+                </>
+              ) : emergencyOt ? (
+                <>
+                  <button onClick={() => commitRecord(false, true)} className="w-full py-4 bg-amber-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl">Apply Emergency OT</button>
+                  <button onClick={() => commitRecord(false, false)} className="w-full py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-2xl font-black text-xs uppercase tracking-widest">Cancel</button>
+                </>
+              ) : null}
               <button onClick={() => setShowOTModal(false)} className="w-full py-3 text-slate-400 font-bold text-[10px] uppercase tracking-widest">Return to Editor</button>
             </div>
           </div>
@@ -2549,10 +2589,20 @@ export default function App() {
                     </div>
                   </div>
 
-                  {(otTrigger || emergencyOtEligible) && (
-                    <div className="p-3 bg-rose-500/10 rounded-xl border border-rose-500/20 text-center animate-pulse">
-                      <div className="text-[8px] font-black text-rose-600 uppercase tracking-widest flex items-center justify-center gap-2">
-                        <ZapIcon size={12} /> {emergencyOt ? 'OT' : 'Overtime Detected'}: {secondsToTime(otSec)}
+                  {extensionOt && extensionOtHours > 0 && (
+                    <div className="p-4 bg-amber-500/10 rounded-xl border border-amber-500/30 text-center animate-pulse">
+                      <div className="text-sm font-black text-amber-600 uppercase tracking-widest flex items-center justify-center gap-2 mb-1">
+                        <ZapIcon size={14} /> OT Detected
+                      </div>
+                      <div className="text-xs font-black text-amber-700 font-mono tracking-tighter">
+                        {extensionOtHours.toFixed(2)} hours extended beyond {shiftType} shift
+                      </div>
+                    </div>
+                  )}
+                  {emergencyOt && (
+                    <div className="p-4 bg-amber-500/10 rounded-xl border border-amber-500/30 text-center">
+                      <div className="text-sm font-black text-amber-600 uppercase tracking-widest flex items-center justify-center gap-2">
+                        <AlertCircleIcon size={14} /> Emergency OT Selected
                       </div>
                     </div>
                   )}

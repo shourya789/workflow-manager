@@ -19,7 +19,9 @@ export interface TimeData {
   userRealId?: string; // Internal UUID reference for admin lookups
   date: string;
   shiftType: ShiftType;
-  emergencyOt?: boolean;
+  emergencyOt?: boolean; // Manual OT for non-working day
+  extensionOt?: boolean; // Auto-calculated OT when login extends beyond shift base
+  extensionOtHours?: number; // Hours extended beyond shift base
   pause: string; // HH:MM:SS
   dispo: string; // HH:MM:SS
   dead: string;  // HH:MM:SS
