@@ -162,6 +162,8 @@ export default function App() {
   const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear());
   const [showOTModal, setShowOTModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isReadOnlyInspection, setIsReadOnlyInspection] = useState(false);
+  const [isDataExtracted, setIsDataExtracted] = useState(false);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [adminViewingUserId, setAdminViewingUserId] = useState<string | null>(null);
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
@@ -654,6 +656,7 @@ export default function App() {
         }));
         const signature = JSON.stringify({ parsed, raw: rawText.trim() });
         setParsedSignature(signature);
+        setIsDataExtracted(true);
         setRawText('');
       }
     } catch (e: any) {
@@ -781,6 +784,8 @@ export default function App() {
     setFormData(INITIAL_FORM_STATE);
     setShowOTModal(false);
     setEmergencyOt(false);
+    setIsDataExtracted(false);
+    setIsReadOnlyInspection(false);
   };
 
   const saveToHistory = () => {
@@ -2380,7 +2385,7 @@ export default function App() {
           )}
           {user.role !== 'admin' && (
             <>
-              <button onClick={() => setActiveTab('calc')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'calc' ? 'bg-indigo-600' : 'text-slate-400 hover:bg-white/5'}`}><ClockIcon size={16} /> Dashboard</button>
+              <button onClick={() => { setIsReadOnlyInspection(false); setActiveTab('calc'); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'calc' ? 'bg-indigo-600' : 'text-slate-400 hover:bg-white/5'}`}><ClockIcon size={16} /> Dashboard</button>
               <button onClick={() => setActiveTab('details')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'details' ? 'bg-indigo-600' : 'text-slate-400 hover:bg-white/5'}`}><LayoutGridIcon size={16} /> Sequential Data</button>
               <button onClick={() => setActiveTab('ot-log')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'ot-log' ? 'bg-indigo-600' : 'text-slate-400 hover:bg-white/5'}`}><ZapIcon size={16} /> OT Records</button>
             </>
@@ -2410,18 +2415,20 @@ export default function App() {
           {activeTab === 'calc' && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in duration-500">
               <div className="lg:col-span-8 space-y-6">
-                <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border dark:border-slate-800">
-                  <div className="flex items-center gap-2 mb-3"><SparklesIcon size={14} className="text-indigo-500" /><h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Performance Injector</h4></div>
-                  <textarea value={rawText} onChange={(e) => setRawText(e.target.value)} className="w-full h-24 p-4 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-mono resize-none border focus:border-indigo-500 dark:text-white" placeholder="Paste squashed dialer performance text..." />
-                  <button onClick={handleAIParsing} disabled={isParsing || !rawText} className={`w-full mt-3 py-4 rounded-xl font-black text-[10px] uppercase tracking-widest bg-slate-900 text-white ${isParsing || !rawText ? 'opacity-50' : ''}`}>{isParsing ? <RefreshCcwIcon className="animate-spin" size={14} /> : 'Auto-Extract Metrics'}</button>
-                </div>
+                {!isReadOnlyInspection && (
+                  <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border dark:border-slate-800">
+                    <div className="flex items-center gap-2 mb-3"><SparklesIcon size={14} className="text-indigo-500" /><h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Performance Injector</h4></div>
+                    <textarea value={rawText} onChange={(e) => setRawText(e.target.value)} className="w-full h-24 p-4 bg-slate-50 dark:bg-slate-950 rounded-2xl outline-none text-xs font-mono resize-none border focus:border-indigo-500 dark:text-white" placeholder="Paste squashed dialer performance text..." />
+                    <button onClick={handleAIParsing} disabled={isParsing || !rawText} className={`w-full mt-3 py-4 rounded-xl font-black text-[10px] uppercase tracking-widest bg-slate-900 text-white ${isParsing || !rawText ? 'opacity-50' : ''}`}>{isParsing ? <RefreshCcwIcon className="animate-spin" size={14} /> : 'Auto-Extract Metrics'}</button>
+                  </div>
+                )}
 
                 <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl shadow-sm border dark:border-slate-800">
                   <div className="flex justify-between mb-8 items-center">
-                    <h2 className="font-black text-sm uppercase dark:text-white flex items-center gap-3"><ActivityIcon className="text-indigo-500" size={18} /> Audit Inspector</h2>
+                    <h2 className="font-black text-sm uppercase dark:text-white flex items-center gap-3"><ActivityIcon className="text-indigo-500" size={18} /> Audit Inspector {isReadOnlyInspection && <span className="text-[8px] text-amber-600 font-bold px-2 py-1 bg-amber-50 dark:bg-amber-900/30 rounded-full">Read-Only Session</span>}</h2>
                     <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
-                      <button onClick={() => setShiftType('Full Day')} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${shiftType === 'Full Day' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}>Full Day</button>
-                      <button onClick={() => setShiftType('Half Day')} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${shiftType === 'Half Day' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}>Half Day</button>
+                      <button onClick={() => setShiftType('Full Day')} disabled={isReadOnlyInspection || (!editingId && isDataExtracted)} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${shiftType === 'Full Day' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'} ${(isReadOnlyInspection || (!editingId && isDataExtracted)) ? 'opacity-50 cursor-not-allowed' : ''}`}>Full Day</button>
+                      <button onClick={() => setShiftType('Half Day')} disabled={isReadOnlyInspection || (!editingId && isDataExtracted)} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${shiftType === 'Half Day' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'} ${(isReadOnlyInspection || (!editingId && isDataExtracted)) ? 'opacity-50 cursor-not-allowed' : ''}`}>Half Day</button>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-5">
@@ -2439,17 +2446,18 @@ export default function App() {
                       { l: 'Hold Time', n: 'hold', i: <TimerIcon size={12} /> },
                       { l: 'Wait Time', n: 'wait', i: <ActivityIcon size={12} /> },
                     ].map(f => (
-                      <div key={f.n} className="space-y-1.5"><label className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5 pl-1">{f.i} {f.l}</label><input type={f.t || 'text'} value={(formData as any)[f.n]} onChange={(e) => setFormData({ ...formData, [f.n]: f.t === 'number' ? parseInt(e.target.value) || 0 : e.target.value })} onBlur={(e) => f.t !== 'number' && setFormData({ ...formData, [f.n]: autoCorrectTime(e.target.value) })} className="w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-xl outline-none border focus:border-indigo-500/20 font-mono text-xs dark:text-white" /></div>
+                      <div key={f.n} className="space-y-1.5"><label className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5 pl-1">{f.i} {f.l}</label><input disabled={isReadOnlyInspection || (!editingId && isDataExtracted)} type={f.t || 'text'} value={(formData as any)[f.n]} onChange={(e) => setFormData({ ...formData, [f.n]: f.t === 'number' ? parseInt(e.target.value) || 0 : e.target.value })} onBlur={(e) => f.t !== 'number' && setFormData({ ...formData, [f.n]: autoCorrectTime(e.target.value) })} className={`w-full p-3 bg-slate-50 dark:bg-slate-950 rounded-xl outline-none border focus:border-indigo-500/20 font-mono text-xs dark:text-white ${(isReadOnlyInspection || (!editingId && isDataExtracted)) ? 'opacity-50 cursor-not-allowed' : ''}`} /></div>
                     ))}
                   </div>
 
                   <div className="mt-6">
                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Notes / Reason{reasonRequired ? ' *' : ''}</label>
                     <textarea
+                      disabled={isReadOnlyInspection}
                       value={formData.reason}
                       onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
                       placeholder={reasonRequired ? 'Required: add reason for break > 2 hours or under-shift login' : 'Optional note: reason for OT or any comment'}
-                      className="w-full mt-2 p-3 bg-slate-50 dark:bg-slate-950 rounded-xl outline-none border focus:border-indigo-500/20 font-mono text-xs dark:text-white"
+                      className={`w-full mt-2 p-3 bg-slate-50 dark:bg-slate-950 rounded-xl outline-none border focus:border-indigo-500/20 font-mono text-xs dark:text-white ${isReadOnlyInspection ? 'opacity-50 cursor-not-allowed' : ''}`}
                       rows={3}
                       aria-required={reasonRequired}
                     />
@@ -2458,19 +2466,20 @@ export default function App() {
                   <div className="mt-4 flex items-center gap-2">
                     <input
                       id="emergency-ot"
+                      disabled={isReadOnlyInspection}
                       type="checkbox"
                       checked={emergencyOt}
                       onChange={(e) => setEmergencyOt(e.target.checked)}
-                      className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                      className={`h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 ${isReadOnlyInspection ? 'opacity-50 cursor-not-allowed' : ''}`}
                     />
-                    <label htmlFor="emergency-ot" className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+                    <label htmlFor="emergency-ot" className={`text-[9px] font-black uppercase tracking-widest text-slate-500 ${isReadOnlyInspection ? 'opacity-50' : ''}`}>
                       OT (Min 1 Hour)
                     </label>
                   </div>
 
                   <div className="flex gap-3 mt-8">
-                    {editingId && (<button onClick={() => { setEditingId(null); setFormData(INITIAL_FORM_STATE); setEmergencyOt(false); }} className="px-6 py-4 bg-slate-200 text-slate-600 rounded-2xl font-black text-[10px] uppercase">Cancel</button>)}
-                    <button onClick={saveToHistory} className={`flex-1 py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl text-white bg-indigo-600`}>{editingId ? 'Update Session' : 'Commit Audit'}</button>
+                    {editingId && (<button onClick={() => { setEditingId(null); setFormData(INITIAL_FORM_STATE); setEmergencyOt(false); setIsReadOnlyInspection(false); setIsDataExtracted(false); }} className="px-6 py-4 bg-slate-200 text-slate-600 rounded-2xl font-black text-[10px] uppercase">Cancel</button>)}
+                    <button disabled={isReadOnlyInspection} onClick={saveToHistory} className={`flex-1 py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl text-white ${isReadOnlyInspection ? 'bg-slate-400 opacity-50 cursor-not-allowed' : 'bg-indigo-600'}`}>{editingId && !isReadOnlyInspection ? 'Update Session' : editingId && isReadOnlyInspection ? 'Session Inspection (Read-Only)' : 'Commit Audit'}</button>
                   </div>
                 </div>
               </div>
@@ -2865,8 +2874,14 @@ export default function App() {
                             <td className="px-4 py-5 text-center"><StatusBadge status={e.status} /></td>
                             <td className="px-4 py-5 text-right">
                               <div className="flex justify-end gap-1">
-                                <button onClick={() => startEdit(e)} className="p-1.5 text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 rounded transition-all"><EditIcon size={12} /></button>
-                                <button onClick={() => deleteEntry(e.id)} className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded transition-all"><TrashIcon size={12} /></button>
+                                {adminViewingUserId && (
+                                  <button onClick={() => startEdit(e)} className="p-1.5 text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 rounded transition-all" title="Edit">
+                                    <EditIcon size={12} />
+                                  </button>
+                                )}
+                                <button onClick={() => deleteEntry(e.id)} className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded transition-all" title="Delete">
+                                  <TrashIcon size={12} />
+                                </button>
                               </div>
                             </td>
                           </tr>
@@ -2946,7 +2961,12 @@ export default function App() {
                             </td>
                             <td className="px-6 py-6 text-sm text-slate-600 dark:text-slate-300">{e.reason ? (e.reason.length > 80 ? e.reason.slice(0, 77) + '...' : e.reason) : '-'}</td>
                             <td className="px-6 py-6 text-right">
-                              <button onClick={() => startEdit(e)} className="text-indigo-500 hover:bg-indigo-500/5 px-3 py-1.5 rounded-lg font-bold text-[9px] uppercase transition-colors">Inspect Session</button>
+                              <button onClick={() => {
+                                if (user?.role !== 'admin' && !adminViewingUserId) {
+                                  setIsReadOnlyInspection(true);
+                                }
+                                startEdit(e);
+                              }} className="text-indigo-500 hover:bg-indigo-500/5 px-3 py-1.5 rounded-lg font-bold text-[9px] uppercase transition-colors">Inspect Session</button>
                             </td>
                           </tr>
                         );
