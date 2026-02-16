@@ -2107,13 +2107,12 @@ export default function App() {
   const showDetailsKpis = Boolean(adminViewingUserId || selectedUsers.length > 0 || user?.role === 'user');
 
   const otLogEntries = useMemo(() => {
-    const eligibilitySec = 4.5 * 3600;
     return entries.filter(e => {
-      const loginSec = timeToSeconds(e.currentLogin || '00:00:00');
-      if (e.emergencyOt) return loginSec >= 3600;
-      const shiftTarget = e.shiftType === 'Full Day' ? 9 * 3600 : 4.5 * 3600;
-      const extra = loginSec - shiftTarget;
-      return loginSec >= eligibilitySec && extra > 3600;
+      // Show if Emergency OT is applied
+      if (e.emergencyOt) return true;
+      // Show if Extension OT is applied
+      if (e.extensionOt && e.extensionOtHours && e.extensionOtHours >= 1) return true;
+      return false;
     });
   }, [entries]);
 
