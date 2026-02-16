@@ -838,8 +838,6 @@ export default function App() {
       }
     }
     commitRecord(false, false);
-    }
-    commitRecord(false);
   };
 
 
