@@ -689,24 +689,18 @@ export default function App() {
   const emergencyOtEligible = emergencyOt && loginSec >= 3600;
   const otTrigger = loginSec >= otEligibilitySec && extraSec > 3600;
 
-  // Auto-calculate OT based on shift type and login duration
+  // Show OT hours info when shift type changes (does NOT auto-enable checkbox)
   const handleShiftTypeChange = (newShiftType: ShiftType) => {
     setShiftType(newShiftType);
     const loginSeconds = timeToSeconds(formData.currentLogin);
     
+    // Show available OT hours as reference info only - user must manually check box
     if (newShiftType === 'Half Day' && loginSeconds > 4.5 * 3600) {
-      // Half Day: if login > 4.5 hrs, auto-enable OT
-      setEmergencyOt(true);
       const otHours = (loginSeconds - 4.5 * 3600) / 3600;
-      pushToast(`Half Day OT detected: ${otHours.toFixed(2)} hours`, 'success');
+      pushToast(`Half Day OT available: ${otHours.toFixed(2)} hours (check box if applying emergency OT for non-working day)`, 'info');
     } else if (newShiftType === 'Full Day' && loginSeconds > 9 * 3600) {
-      // Full Day: if login > 9 hrs, auto-enable OT
-      setEmergencyOt(true);
       const otHours = (loginSeconds - 9 * 3600) / 3600;
-      pushToast(`Full Day OT detected: ${otHours.toFixed(2)} hours`, 'success');
-    } else {
-      // No OT applicable
-      setEmergencyOt(false);
+      pushToast(`Full Day OT available: ${otHours.toFixed(2)} hours (check box if applying emergency OT for non-working day)`, 'info');
     }
   };
   const otSec = emergencyOtEligible ? loginSec : otTrigger ? extraSec : 0;
