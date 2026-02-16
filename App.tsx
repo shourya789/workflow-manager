@@ -154,7 +154,7 @@ export default function App() {
   const [parsedSignature, setParsedSignature] = useState<string | null>(null);
   const [lastCommittedSignature, setLastCommittedSignature] = useState<string | null>(null);
   const autoParseTimerRef = React.useRef<NodeJS.Timeout | null>(null);
-  const [activeTab, setActiveTab] = useState<'calc' | 'details' | 'admin-dashboard' | 'admin' | 'all-logs' | 'ot-log' | 'ot-admin' | 'users' | 'migrations'>('calc');
+  const [activeTab, setActiveTab] = useState<'calc' | 'details' | 'admin-dashboard' | 'admin' | 'all-logs' | 'ot-log' | 'ot-admin' | 'users' | 'migrations' | 'audit-logs'>('calc');
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [shiftType, setShiftType] = useState<ShiftType>('Full Day');
   const [emergencyOt, setEmergencyOt] = useState(false);
@@ -188,6 +188,11 @@ export default function App() {
   const [masterDataServer, setMasterDataServer] = useState<TimeData[]>([]);
   const [migrations, setMigrations] = useState<any[]>([]);
   const [expandedMigrationId, setExpandedMigrationId] = useState<string | null>(null);
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [auditLogsLoading, setAuditLogsLoading] = useState(false);
+  const [auditLogsPage, setAuditLogsPage] = useState(1);
+  const [auditLogsTotal, setAuditLogsTotal] = useState(0);
+  const auditLogsPageSize = 50;
   const [otAdminSearchQuery, setOtAdminSearchQuery] = useState('');
   const [otApprovalSearchQuery, setOtApprovalSearchQuery] = useState('');
   const [otApprovalDateStart, setOtApprovalDateStart] = useState('');
@@ -281,6 +286,23 @@ export default function App() {
       setMigrations(d.migrations || []);
     } catch (e) {
       console.error('Failed to fetch migrations', e);
+    }
+  };
+
+  const fetchAuditLogs = async (page: number = 1) => {
+    try {
+      setAuditLogsLoading(true);
+      const offset = (page - 1) * auditLogsPageSize;
+      const r = await fetch(`/api/storage?action=getIntegrityAudit&limit=${auditLogsPageSize}&offset=${offset}`);
+      const d = await r.json();
+      setAuditLogs(d.violations || []);
+      setAuditLogsTotal(d.total || 0);
+      setAuditLogsPage(page);
+    } catch (e) {
+      console.error('Failed to fetch audit logs', e);
+      pushToast('Failed to fetch integrity audit logs', 'error');
+    } finally {
+      setAuditLogsLoading(false);
     }
   };
 
@@ -3120,6 +3142,7 @@ export default function App() {
                 <div className="flex items-center gap-3">
                   <button onClick={() => exportConsolidatedExcel(masterDataServer)} className="bg-amber-600 px-6 py-4 text-white rounded-xl font-black text-[10px] uppercase shadow-xl hover:bg-amber-700 transition-all">Master Analysis Report</button>
                   <button onClick={() => { fetchMigrations(); setActiveTab('migrations'); }} className="bg-slate-200 dark:bg-slate-800 px-4 py-3 rounded-xl text-[10px] font-black uppercase">Migration Reports</button>
+                  <button onClick={() => { fetchAuditLogs(1); setActiveTab('audit-logs'); }} className="bg-rose-600/20 border border-rose-600/50 text-rose-600 px-4 py-3 rounded-xl text-[10px] font-black uppercase hover:bg-rose-600/30 transition-all">Integrity Violations</button>
                   <button onClick={() => setShowMigrationModal(true)} disabled={isMigrating} className="bg-emerald-600 px-4 py-3 rounded-xl text-[10px] font-black uppercase text-white">{isMigrating ? 'Migrating...' : 'Run migration now'}</button>
                   <button onClick={() => setShowPasswords(p => !p)} className="bg-slate-200 dark:bg-slate-800 px-4 py-3 rounded-xl text-[10px] font-black uppercase">{showPasswords ? 'Hide Passwords' : 'Show Passwords'}</button>
                 </div>
@@ -3268,6 +3291,58 @@ export default function App() {
                         </div>
                       ) : null;
                     })()}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'audit-logs' && (
+            <div className="space-y-6 animate-in fade-in duration-500">
+              <div className="flex justify-between items-center">
+                <h2 className="text-xl font-black uppercase dark:text-white">Data Integrity Violations</h2>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => fetchAuditLogs(1)} disabled={auditLogsLoading} className="bg-rose-600 px-6 py-4 text-white rounded-xl font-black text-[10px] uppercase shadow-xl hover:bg-rose-700 transition-all disabled:opacity-50">{auditLogsLoading ? 'Loading...' : 'Refresh'}</button>
+                  <button onClick={() => { setActiveTab('admin'); }} className="bg-slate-200 dark:bg-slate-800 px-4 py-3 rounded-xl text-[10px] font-black uppercase">Back to Team Hub</button>
+                </div>
+              </div>
+              <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border dark:border-slate-800 shadow-sm">
+                {auditLogs.length === 0 ? (
+                  <div className="px-6 py-24 text-center text-slate-400 font-bold uppercase tracking-widest opacity-30">No integrity violations recorded</div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between mb-4">
+                      <span className="text-[10px] font-black uppercase text-slate-400">Total violations: <span className="text-rose-600 font-black">{auditLogsTotal}</span></span>
+                    </div>
+                    <table className="w-full text-left text-sm">
+                      <thead className="text-slate-400 uppercase text-[10px] font-black">
+                        <tr className="border-b border-slate-200 dark:border-slate-700">
+                          <th className="px-4 py-3">Timestamp</th>
+                          <th className="px-4 py-3">User ID</th>
+                          <th className="px-4 py-3">Entry ID</th>
+                          <th className="px-4 py-3">Violation Type</th>
+                          <th className="px-4 py-3">Details</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {auditLogs.map((log, idx) => (
+                          <tr key={log.id || idx} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
+                            <td className="px-4 py-4 text-[11px] font-mono">{new Date(log.timestamp).toLocaleString()}</td>
+                            <td className="px-4 py-4 text-[11px] font-bold uppercase text-amber-600">{log.user_id?.slice(0, 8) || '-'}</td>
+                            <td className="px-4 py-4 text-[11px] font-mono text-slate-500">{log.entry_id?.slice(0, 12) || '-'}</td>
+                            <td className="px-4 py-4 text-[11px]"><span className="px-2 py-1 bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-400 rounded font-bold uppercase text-[9px]">{log.violation_type || 'Unknown'}</span></td>
+                            <td className="px-4 py-4 text-[10px] text-slate-500 max-w-xs truncate" title={`Original: ${log.original_hash?.slice(0, 16)}... → Modified: ${log.received_hash?.slice(0, 16)}...`}>Hash mismatch detected</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <div className="flex items-center justify-between mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
+                      <span className="text-[10px] font-bold text-slate-400">Page {auditLogsPage} of {Math.ceil(auditLogsTotal / auditLogsPageSize)}</span>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => fetchAuditLogs(auditLogsPage - 1)} disabled={auditLogsPage === 1 || auditLogsLoading} className="px-4 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed">Previous</button>
+                        <button onClick={() => fetchAuditLogs(auditLogsPage + 1)} disabled={(auditLogsPage * auditLogsPageSize) >= auditLogsTotal || auditLogsLoading} className="px-4 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed">Next</button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
