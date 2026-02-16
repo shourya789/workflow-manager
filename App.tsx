@@ -688,6 +688,27 @@ export default function App() {
   const extraSec = Math.max(0, loginSec - shiftBase);
   const emergencyOtEligible = emergencyOt && loginSec >= 3600;
   const otTrigger = loginSec >= otEligibilitySec && extraSec > 3600;
+
+  // Auto-calculate OT based on shift type and login duration
+  const handleShiftTypeChange = (newShiftType: ShiftType) => {
+    setShiftType(newShiftType);
+    const loginSeconds = timeToSeconds(formData.currentLogin);
+    
+    if (newShiftType === 'Half Day' && loginSeconds > 4.5 * 3600) {
+      // Half Day: if login > 4.5 hrs, auto-enable OT
+      setEmergencyOt(true);
+      const otHours = (loginSeconds - 4.5 * 3600) / 3600;
+      pushToast(`Half Day OT detected: ${otHours.toFixed(2)} hours`, 'success');
+    } else if (newShiftType === 'Full Day' && loginSeconds > 9 * 3600) {
+      // Full Day: if login > 9 hrs, auto-enable OT
+      setEmergencyOt(true);
+      const otHours = (loginSeconds - 9 * 3600) / 3600;
+      pushToast(`Full Day OT detected: ${otHours.toFixed(2)} hours`, 'success');
+    } else {
+      // No OT applicable
+      setEmergencyOt(false);
+    }
+  };
   const otSec = emergencyOtEligible ? loginSec : otTrigger ? extraSec : 0;
 
   const loginRemainingSec = Math.max(0, shiftBase - loginSec);
@@ -2427,8 +2448,8 @@ export default function App() {
                   <div className="flex justify-between mb-8 items-center">
                     <h2 className="font-black text-sm uppercase dark:text-white flex items-center gap-3"><ActivityIcon className="text-indigo-500" size={18} /> Audit Inspector {isReadOnlyInspection && <span className="text-[8px] text-amber-600 font-bold px-2 py-1 bg-amber-50 dark:bg-amber-900/30 rounded-full">Read-Only Session</span>}</h2>
                     <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
-                      <button onClick={() => setShiftType('Full Day')} disabled={isReadOnlyInspection || (!editingId && isDataExtracted)} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${shiftType === 'Full Day' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'} ${(isReadOnlyInspection || (!editingId && isDataExtracted)) ? 'opacity-50 cursor-not-allowed' : ''}`}>Full Day</button>
-                      <button onClick={() => setShiftType('Half Day')} disabled={isReadOnlyInspection || (!editingId && isDataExtracted)} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${shiftType === 'Half Day' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'} ${(isReadOnlyInspection || (!editingId && isDataExtracted)) ? 'opacity-50 cursor-not-allowed' : ''}`}>Half Day</button>
+                      <button onClick={() => handleShiftTypeChange('Full Day')} disabled={isReadOnlyInspection} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${shiftType === 'Full Day' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'} ${isReadOnlyInspection ? 'opacity-50 cursor-not-allowed' : ''}`}>Full Day</button>
+                      <button onClick={() => handleShiftTypeChange('Half Day')} disabled={isReadOnlyInspection} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${shiftType === 'Half Day' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'} ${isReadOnlyInspection ? 'opacity-50 cursor-not-allowed' : ''}`}>Half Day</button>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-5">
