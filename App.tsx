@@ -2494,7 +2494,7 @@ export default function App() {
                       className={`h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 ${isReadOnlyInspection ? 'opacity-50 cursor-not-allowed' : ''}`}
                     />
                     <label htmlFor="emergency-ot" className={`text-[9px] font-black uppercase tracking-widest text-slate-500 ${isReadOnlyInspection ? 'opacity-50' : ''}`}>
-                      OT (Min 1 Hour)
+                      OT (Emergency OT only - non-working day)
                     </label>
                   </div>
 
