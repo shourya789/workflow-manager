@@ -134,6 +134,7 @@ async function ensureSchema(client: any) {
     await tryAddColumn(client, 'users', 'status TEXT');
     await tryAddColumn(client, 'users', 'created_at TEXT');
     await tryAddColumn(client, 'entries', 'team_id TEXT REFERENCES teams(id)');
+    await tryAddColumn(client, 'entries', 'data_hash TEXT');
     await tryAddColumn(client, 'migrations', 'team_id TEXT REFERENCES teams(id)');
     
     // Create indexes for performance (safe - IF NOT EXISTS prevents duplicates)
@@ -340,6 +341,16 @@ function verifyPassword(password: string, storedHash: string) {
   } catch (e) {
     return false;
   }
+}
+
+function computeDataHash(data: any) {
+  const dataStr = typeof data === 'string' ? data : JSON.stringify(data);
+  return crypto.createHash('sha256').update(dataStr).digest('hex');
+}
+
+function verifyDataIntegrity(receivedData: any, storedHash: string) {
+  const receivedHash = computeDataHash(receivedData);
+  return receivedHash === storedHash;
 }
 
 function mapUserRow(row: any) {
@@ -657,13 +668,14 @@ export default async function handler(req: any, res: any) {
       if (!sessionUser) return res.status(401).json({ error: 'Authentication required' });
       if (sessionUser.role !== 'admin' && userId !== sessionUser.id) return res.status(403).json({ error: 'Access denied' });
       const teamId = sessionUser.team_id;
-      const r = await client.execute('SELECT id, payload, status, date FROM entries WHERE user_id = ? AND team_id = ? ORDER BY date DESC', [userId, teamId]);
+      const r = await client.execute('SELECT id, payload, data_hash, status, date FROM entries WHERE user_id = ? AND team_id = ? ORDER BY date DESC', [userId, teamId]);
       const entries = r.rows.map((row: any) => {
         try {
-          return { id: row.id, date: row.date, ...JSON.parse(row.payload || '{}'), status: row.status };
+          const parsed = JSON.parse(row.payload || '{}');
+          return { id: row.id, date: row.date, ...parsed, status: row.status, dataHash: row.data_hash || null };
         } catch (e) {
           console.warn('Failed to parse entry payload:', row.id, e);
-          return { id: row.id, date: row.date, status: row.status };
+          return { id: row.id, date: row.date, status: row.status, dataHash: row.data_hash || null };
         }
       });
       return res.status(200).json({ entries });
@@ -680,9 +692,11 @@ export default async function handler(req: any, res: any) {
     if (!sessionUser) return res.status(401).json({ error: 'Authentication required' });
     if (sessionUser.role !== 'admin' && userId !== sessionUser.id) return res.status(403).json({ error: 'Access denied' });
     const teamId = sessionUser.team_id;
-    await client.execute('INSERT INTO entries(id, user_id, team_id, date, payload, status) VALUES(?,?,?,?,?,?)', [entry.id, userId, teamId, entry.date || new Date().toISOString(), JSON.stringify(entry), entry.status || 'N/A']);
-    const r = await client.execute('SELECT id, payload, status, date FROM entries WHERE user_id = ? AND team_id = ? ORDER BY date DESC', [userId, teamId]);
-    const entries = r.rows.map((row: any) => ({ id: row.id, date: row.date, ...JSON.parse(row.payload || '{}'), status: row.status }));
+    const payloadStr = JSON.stringify(entry);
+    const dataHash = computeDataHash(payloadStr);
+    await client.execute('INSERT INTO entries(id, user_id, team_id, date, payload, data_hash, status) VALUES(?,?,?,?,?,?,?)', [entry.id, userId, teamId, entry.date || new Date().toISOString(), payloadStr, dataHash, entry.status || 'N/A']);
+    const r = await client.execute('SELECT id, payload, data_hash, status, date FROM entries WHERE user_id = ? AND team_id = ? ORDER BY date DESC', [userId, teamId]);
+    const entries = r.rows.map((row: any) => ({ id: row.id, date: row.date, ...JSON.parse(row.payload || '{}'), status: row.status, dataHash: row.data_hash }));
     return res.status(201).json({ entries });
   }
 
@@ -693,9 +707,11 @@ export default async function handler(req: any, res: any) {
     if (!sessionUser) return res.status(401).json({ error: 'Authentication required' });
     if (sessionUser.role !== 'admin' && userId !== sessionUser.id) return res.status(403).json({ error: 'Access denied' });
     const teamId = sessionUser.team_id;
-    await client.execute('UPDATE entries SET payload = ?, status = ? WHERE id = ? AND user_id = ? AND team_id = ?', [JSON.stringify(entry), entry.status || 'N/A', entryId, userId, teamId]);
-    const r = await client.execute('SELECT id, payload, status, date FROM entries WHERE user_id = ? AND team_id = ? ORDER BY date DESC', [userId, teamId]);
-    const entries = r.rows.map((row: any) => ({ id: row.id, date: row.date, ...JSON.parse(row.payload || '{}'), status: row.status }));
+    const payloadStr = JSON.stringify(entry);
+    const dataHash = computeDataHash(payloadStr);
+    await client.execute('UPDATE entries SET payload = ?, data_hash = ?, status = ? WHERE id = ? AND user_id = ? AND team_id = ?', [payloadStr, dataHash, entry.status || 'N/A', entryId, userId, teamId]);
+    const r = await client.execute('SELECT id, payload, data_hash, status, date FROM entries WHERE user_id = ? AND team_id = ? ORDER BY date DESC', [userId, teamId]);
+    const entries = r.rows.map((row: any) => ({ id: row.id, date: row.date, ...JSON.parse(row.payload || '{}'), status: row.status, dataHash: row.data_hash }));
     return res.status(200).json({ entries });
   }
 
@@ -769,15 +785,15 @@ export default async function handler(req: any, res: any) {
       const total = countResult.rows[0]?.total || 0;
       
       const r = await client.execute(
-        'SELECT e.id, e.payload, e.status, e.date, u.name as user_name, u.emp_id as user_emp FROM entries e JOIN users u ON u.id = e.user_id WHERE e.team_id = ? AND u.team_id = ? ORDER BY e.date DESC LIMIT ? OFFSET ?',
+        'SELECT e.id, e.payload, e.data_hash, e.status, e.date, u.name as user_name, u.emp_id as user_emp FROM entries e JOIN users u ON u.id = e.user_id WHERE e.team_id = ? AND u.team_id = ? ORDER BY e.date DESC LIMIT ? OFFSET ?',
         [teamId, teamId, limit, offset]
       );
       const result = r.rows.map((row: any) => {
         try {
-          return { id: row.id, date: row.date, ...JSON.parse(row.payload || '{}'), status: row.status, userName: row.user_name, userId: row.user_emp };
+          return { id: row.id, date: row.date, ...JSON.parse(row.payload || '{}'), status: row.status, userName: row.user_name, userId: row.user_emp, dataHash: row.data_hash || null };
         } catch (e) {
           console.warn('Failed to parse entry payload:', row.id, e);
-          return { id: row.id, date: row.date, status: row.status, userName: row.user_name, userId: row.user_emp };
+          return { id: row.id, date: row.date, status: row.status, userName: row.user_name, userId: row.user_emp, dataHash: row.data_hash || null };
         }
       });
       return res.status(200).json({ entries: result, total, limit, offset, hasMore: (offset + limit) < total });
@@ -824,7 +840,9 @@ export default async function handler(req: any, res: any) {
         for (const e of entries) {
           const exists = await client.execute('SELECT id FROM entries WHERE id = ?', [e.id]);
           if (exists.rows.length === 0) {
-            await client.execute('INSERT INTO entries(id, user_id, team_id, date, payload, status) VALUES(?,?,?,?,?,?)', [e.id, dbUserId, teamId, e.date || new Date().toISOString(), JSON.stringify(e), e.status || 'N/A']);
+            const payloadStr = JSON.stringify(e);
+            const dataHash = computeDataHash(payloadStr);
+            await client.execute('INSERT INTO entries(id, user_id, team_id, date, payload, data_hash, status) VALUES(?,?,?,?,?,?,?)', [e.id, dbUserId, teamId, e.date || new Date().toISOString(), payloadStr, dataHash, e.status || 'N/A']);
             entriesInserted++;
           }
         }
@@ -941,6 +959,50 @@ export default async function handler(req: any, res: any) {
     } catch (e: any) {
       console.error('Move user error:', e);
       return res.status(500).json({ error: 'Failed to move user', details: e.message });
+    }
+  }
+
+  if (action === 'validateIntegrity' && method === 'POST') {
+    try {
+      const { entryId, payload } = req.body || {};
+      if (!entryId || !payload) return logBadRequest(res, 'entryId and payload required', { action, body: req.body });
+      const sessionUser = await getSessionUser(req, client);
+      if (!sessionUser) return res.status(401).json({ error: 'Authentication required' });
+      const teamId = sessionUser.team_id;
+      
+      // Get the original entry and its hash
+      const entry = await client.execute('SELECT data_hash FROM entries WHERE id = ? AND team_id = ?', [entryId, teamId]);
+      if (entry.rows.length === 0) return res.status(404).json({ error: 'Entry not found' });
+      
+      const storedHash = entry.rows[0].data_hash as string;
+      if (!storedHash) {
+        // Entry was created before hash feature, no integrity check available
+        return res.status(200).json({ valid: null, message: 'Entry predates integrity feature. No hash available.' });
+      }
+      
+      // Verify if received payload matches original
+      const payloadStr = JSON.stringify(payload);
+      const receivedHash = computeDataHash(payloadStr);
+      const isValid = receivedHash === storedHash;
+      
+      if (isValid) {
+        return res.status(200).json({ 
+          valid: true, 
+          message: 'Data is original - no modifications detected',
+          originalHash: storedHash,
+          receivedHash: receivedHash
+        });
+      } else {
+        return res.status(400).json({ 
+          error: 'Data integrity check failed', 
+          details: 'The submitted data has been modified from the original. Original data will not be accepted.',
+          originalHash: storedHash,
+          receivedHash: receivedHash
+        });
+      }
+    } catch (e: any) {
+      console.error('Integrity validation error:', e);
+      return res.status(500).json({ error: 'Integrity validation failed', details: e.message });
     }
   }
 
