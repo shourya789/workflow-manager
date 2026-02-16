@@ -205,21 +205,37 @@ async function ensureSchema(client: any) {
         }
       }
     }
+
+    // One-time fix: ensure permanent admin join invites have correct team_id
+    const inviteFixCheck = await client.execute('SELECT id FROM migrations WHERE id = ?', ['migration_fix_admin_invite_team_id']);
+    if (inviteFixCheck.rows.length === 0) {
+      for (const account of adminAccounts) {
+        await client.execute(
+          'UPDATE invites SET team_id = ? WHERE token = ? AND (team_id IS NULL OR team_id = "")',
+          [account.id, account.token]
+        );
+      }
+      await client.execute(
+        'INSERT INTO migrations(id, created_at, migrated_users, migrated_entries, mapping, team_id) VALUES(?,?,?,?,?,?)',
+        ['migration_fix_admin_invite_team_id', createdAt, 0, 0, JSON.stringify({}), 'team_aakash']
+      );
+      console.log('Admin invite team_id fix completed');
+    }
     
-    // Migrate old default team data to Aakash's team (only run once)
-    const migrationCheck = await client.execute('SELECT id FROM migrations WHERE id = ?', ['migration_to_aakash_team']);
+    // Migrate old default team data to Ashish's team (only run once)
+    const migrationCheck = await client.execute('SELECT id FROM migrations WHERE id = ?', ['migration_to_ashish_team']);
     if (migrationCheck.rows.length === 0) {
-      console.log('Running one-time migration: moving default team data to Aakash team');
-      const usersMigrated = await client.execute('UPDATE users SET team_id = ? WHERE team_id = ? OR team_id IS NULL OR team_id = ""', ['team_aakash', DEFAULT_TEAM_ID]);
+      console.log('Running one-time migration: moving default team data to Ashish team');
+      const usersMigrated = await client.execute('UPDATE users SET team_id = ? WHERE team_id = ? OR team_id IS NULL OR team_id = ""', ['team_ashish', DEFAULT_TEAM_ID]);
       await client.execute('UPDATE users SET status = "active" WHERE status IS NULL OR status = ""');
       await client.execute('UPDATE users SET created_at = ? WHERE created_at IS NULL OR created_at = ""', [createdAt]);
       await client.execute('UPDATE entries SET team_id = (SELECT team_id FROM users WHERE users.id = entries.user_id) WHERE team_id IS NULL OR team_id = ""');
-      const entriesMigrated = await client.execute('UPDATE entries SET team_id = ? WHERE team_id = ? OR team_id IS NULL OR team_id = ""', ['team_aakash', DEFAULT_TEAM_ID]);
-      await client.execute('UPDATE migrations SET team_id = ? WHERE team_id = ? OR team_id IS NULL OR team_id = ""', ['team_aakash', DEFAULT_TEAM_ID]);
+      const entriesMigrated = await client.execute('UPDATE entries SET team_id = ? WHERE team_id = ? OR team_id IS NULL OR team_id = ""', ['team_ashish', DEFAULT_TEAM_ID]);
+      await client.execute('UPDATE migrations SET team_id = ? WHERE team_id = ? OR team_id IS NULL OR team_id = ""', ['team_ashish', DEFAULT_TEAM_ID]);
       
       // Record that this migration has been completed
       await client.execute('INSERT INTO migrations(id, created_at, migrated_users, migrated_entries, mapping, team_id) VALUES(?,?,?,?,?,?)',
-        ['migration_to_aakash_team', createdAt, usersMigrated.rowsAffected || 0, entriesMigrated.rowsAffected || 0, JSON.stringify({}), 'team_aakash']);
+        ['migration_to_ashish_team', createdAt, usersMigrated.rowsAffected || 0, entriesMigrated.rowsAffected || 0, JSON.stringify({}), 'team_ashish']);
       console.log('Migration completed');
     }
     
@@ -380,15 +396,11 @@ async function acceptInviteAndCreateUser(client: any, token: string, payload: an
   const expiresAt = inviteRow.expires_at as string;
   if (expiresAt && new Date(expiresAt).getTime() <= Date.now()) return { error: 'Invite expired' };
 
-  let teamId = inviteRow.team_id as string | null;
+  const teamId = inviteRow.team_id as string | null;
   console.log('[acceptInvite] Team ID from invite:', teamId);
   if (!teamId) {
-    console.log('[acceptInvite] WARNING: Invite has no team_id, creating new team');
-    const newTeamId = cryptoUUID();
-    const teamName = (payload.teamName || payload.team_name || `Team ${String(token).slice(0, 6)}`) as string;
-    await client.execute('INSERT INTO teams(id, name, created_at) VALUES(?,?,?)', [newTeamId, teamName, nowIso()]);
-    teamId = newTeamId;
-    console.log('[acceptInvite] Created new team:', teamId);
+    console.log('[acceptInvite] ERROR: Invite has no team_id');
+    return { error: 'Invite is missing team assignment' };
   }
 
   const teamCount = await client.execute('SELECT COUNT(*) as total FROM users WHERE team_id = ?', [teamId]);
@@ -486,7 +498,10 @@ export default async function handler(req: any, res: any) {
         return logBadRequest(res, 'Use acceptInvite for invite-based registration.', { inviteToken: true });
       }
       const sessionUser = await getSessionUser(req, client);
-      const teamId = sessionUser?.team_id || DEFAULT_TEAM_ID;
+      if (!sessionUser) {
+        return logBadRequest(res, 'Authentication required', { action: 'register' });
+      }
+      const teamId = sessionUser.team_id;
       const teamCount = await client.execute('SELECT COUNT(*) as total FROM users WHERE team_id = ?', [teamId]);
       const total = Number(teamCount.rows[0]?.total || 0);
       if (total >= 35) return res.status(400).json({ error: 'Team user limit reached (35)' });
