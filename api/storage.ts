@@ -128,6 +128,21 @@ async function ensureSchema(client: any) {
       )
     `);
 
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS integrity_audit (
+        id TEXT PRIMARY KEY,
+        team_id TEXT REFERENCES teams(id),
+        user_id TEXT REFERENCES users(id),
+        entry_id TEXT,
+        action TEXT,
+        original_hash TEXT,
+        received_hash TEXT,
+        violation_type TEXT,
+        timestamp TEXT,
+        details TEXT
+      )
+    `);
+
     await tryAddColumn(client, 'users', 'email TEXT');
     await tryAddColumn(client, 'users', 'password_hash TEXT');
     await tryAddColumn(client, 'users', 'team_id TEXT REFERENCES teams(id)');
@@ -136,6 +151,15 @@ async function ensureSchema(client: any) {
     await tryAddColumn(client, 'entries', 'team_id TEXT REFERENCES teams(id)');
     await tryAddColumn(client, 'entries', 'data_hash TEXT');
     await tryAddColumn(client, 'migrations', 'team_id TEXT REFERENCES teams(id)');
+    await tryAddColumn(client, 'integrity_audit', 'team_id TEXT REFERENCES teams(id)');
+    await tryAddColumn(client, 'integrity_audit', 'user_id TEXT REFERENCES users(id)');
+    await tryAddColumn(client, 'integrity_audit', 'entry_id TEXT');
+    await tryAddColumn(client, 'integrity_audit', 'action TEXT');
+    await tryAddColumn(client, 'integrity_audit', 'original_hash TEXT');
+    await tryAddColumn(client, 'integrity_audit', 'received_hash TEXT');
+    await tryAddColumn(client, 'integrity_audit', 'violation_type TEXT');
+    await tryAddColumn(client, 'integrity_audit', 'timestamp TEXT');
+    await tryAddColumn(client, 'integrity_audit', 'details TEXT');
     
     // Create indexes for performance (safe - IF NOT EXISTS prevents duplicates)
     try {
@@ -149,6 +173,9 @@ async function ensureSchema(client: any) {
       await client.execute(`CREATE INDEX IF NOT EXISTS idx_invites_token ON invites(token)`);
       await client.execute(`CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token)`);
       await client.execute(`CREATE INDEX IF NOT EXISTS idx_migrations_team_id ON migrations(team_id)`);
+      await client.execute(`CREATE INDEX IF NOT EXISTS idx_integrity_audit_team_id ON integrity_audit(team_id)`);
+      await client.execute(`CREATE INDEX IF NOT EXISTS idx_integrity_audit_user_id ON integrity_audit(user_id)`);
+      await client.execute(`CREATE INDEX IF NOT EXISTS idx_integrity_audit_timestamp ON integrity_audit(timestamp)`);
       console.log('Database indexes verified');
     } catch (e) {
       console.warn('Index creation warning (non-fatal):', e);
@@ -351,6 +378,20 @@ function computeDataHash(data: any) {
 function verifyDataIntegrity(receivedData: any, storedHash: string) {
   const receivedHash = computeDataHash(receivedData);
   return receivedHash === storedHash;
+}
+
+async function logIntegrityViolation(client: any, teamId: string, userId: string, entryId: string, originalHash: string, receivedHash: string, violationType: string, details?: string) {
+  try {
+    const id = cryptoUUID();
+    const timestamp = nowIso();
+    await client.execute(
+      'INSERT INTO integrity_audit(id, team_id, user_id, entry_id, action, original_hash, received_hash, violation_type, timestamp, details) VALUES(?,?,?,?,?,?,?,?,?,?)',
+      [id, teamId, userId, entryId, 'integrity_violation_attempt', originalHash, receivedHash, violationType, timestamp, details || null]
+    );
+    console.log(`[AUDIT] Integrity violation logged: ${violationType} by user ${userId} on entry ${entryId}`);
+  } catch (e) {
+    console.error('[AUDIT] Failed to log integrity violation:', e);
+  }
 }
 
 function mapUserRow(row: any) {
@@ -969,6 +1010,7 @@ export default async function handler(req: any, res: any) {
       const sessionUser = await getSessionUser(req, client);
       if (!sessionUser) return res.status(401).json({ error: 'Authentication required' });
       const teamId = sessionUser.team_id;
+      const userId = sessionUser.id as string;
       
       // Get the original entry and its hash
       const entry = await client.execute('SELECT data_hash FROM entries WHERE id = ? AND team_id = ?', [entryId, teamId]);
@@ -993,6 +1035,9 @@ export default async function handler(req: any, res: any) {
           receivedHash: receivedHash
         });
       } else {
+        // Log the violation
+        await logIntegrityViolation(client, teamId, userId, entryId, storedHash, receivedHash, 'data_modification_detected', `User attempted to submit modified entry data`);
+        
         return res.status(400).json({ 
           error: 'Data integrity check failed', 
           details: 'The submitted data has been modified from the original. Original data will not be accepted.',
@@ -1003,6 +1048,86 @@ export default async function handler(req: any, res: any) {
     } catch (e: any) {
       console.error('Integrity validation error:', e);
       return res.status(500).json({ error: 'Integrity validation failed', details: e.message });
+    }
+  }
+
+  if (action === 'checkDataModified' && method === 'POST') {
+    try {
+      const { entryId, payload } = req.body || {};
+      if (!entryId || !payload) return logBadRequest(res, 'entryId and payload required', { action, body: req.body });
+      const sessionUser = await getSessionUser(req, client);
+      if (!sessionUser) return res.status(401).json({ error: 'Authentication required' });
+      const teamId = sessionUser.team_id;
+      
+      // Get the original entry and its hash (lightweight check for UI)
+      const entry = await client.execute('SELECT data_hash FROM entries WHERE id = ? AND team_id = ?', [entryId, teamId]);
+      if (entry.rows.length === 0) return res.status(404).json({ error: 'Entry not found' });
+      
+      const storedHash = entry.rows[0].data_hash as string;
+      if (!storedHash) {
+        return res.status(200).json({ modified: false, message: 'No hash available' });
+      }
+      
+      // Check if data was modified
+      const payloadStr = JSON.stringify(payload);
+      const receivedHash = computeDataHash(payloadStr);
+      const isModified = receivedHash !== storedHash;
+      
+      return res.status(200).json({ 
+        modified: isModified,
+        message: isModified ? 'Data has been modified from original' : 'Data is original'
+      });
+    } catch (e: any) {
+      console.error('Check data modified error:', e);
+      return res.status(500).json({ error: 'Check failed', details: e.message });
+    }
+  }
+
+  if (action === 'getIntegrityAudit' && method === 'GET') {
+    try {
+      const sessionUser = await getSessionUser(req, client);
+      const guard = await requireAdmin(res, sessionUser);
+      if (guard) return guard;
+      const teamId = sessionUser.team_id;
+      
+      // Optional filters
+      const userId = q.userId as string | undefined;
+      const limit = q.limit ? parseInt(q.limit as string, 10) : 100;
+      const offset = q.offset ? parseInt(q.offset as string, 10) : 0;
+      
+      let query = 'SELECT id, user_id, entry_id, original_hash, received_hash, violation_type, timestamp FROM integrity_audit WHERE team_id = ?';
+      const params: any[] = [teamId];
+      
+      if (userId) {
+        query += ' AND user_id = ?';
+        params.push(userId);
+      }
+      
+      query += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+      
+      const r = await client.execute(query, params);
+      
+      // Get total count
+      let countQuery = 'SELECT COUNT(*) as total FROM integrity_audit WHERE team_id = ?';
+      const countParams: any[] = [teamId];
+      if (userId) {
+        countQuery += ' AND user_id = ?';
+        countParams.push(userId);
+      }
+      const countResult = await client.execute(countQuery, countParams);
+      const total = countResult.rows[0]?.total || 0;
+      
+      return res.status(200).json({ 
+        violations: r.rows, 
+        total, 
+        limit, 
+        offset, 
+        hasMore: (offset + limit) < total 
+      });
+    } catch (e: any) {
+      console.error('Get integrity audit error:', e);
+      return res.status(500).json({ error: 'Failed to fetch integrity audit', details: e.message });
     }
   }
 
